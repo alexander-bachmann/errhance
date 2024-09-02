@@ -87,7 +87,7 @@ func wrappedErr(assignStmt ast.AssignStmt, imports map[string]struct{}) string {
 		return ""
 	}
 	name, ok := callsFunc(assignStmt, imports)
-	if !ok {
+	if !ok || name == "" {
 		return ""
 	}
 	return "fmt.Errorf(\"" + name + ": %w\", err)"
