@@ -30,14 +30,14 @@ func foo(x int) (int, error) {
 }
 ```
 
-### CLI Usage
+### Usage
+#### CLI
 ```bash
 go install github.com/alexander-bachmann/errhance@latest
 cd <your_go_repo>
 errhance
 ```
-
-### /pkg Usage
+#### /pkg
 ```go
 src, err := errhance.Do(errhance.Config{}, src)
 if err != nil {
