@@ -27,15 +27,15 @@ func TestDo(t *testing.T) {
 			name: "func returns 3, err != nil returns 3",
 			args: args{
 				src: main(`
-				val, lav, err := justDoIt()
+				val, lav, err := Foo()
 				if err != nil {
 					return val, lav, err
 				}`),
 			},
 			want: main(`
-				val, lav, err := justDoIt()
+				val, lav, err := Foo()
 				if err != nil {
-					return val, lav, fmt.Errorf("justDoIt: %w", err)
+					return val, lav, fmt.Errorf("Foo: %w", err)
 				}`),
 			wantErr: false,
 		},
@@ -43,31 +43,70 @@ func TestDo(t *testing.T) {
 			name: "func returns 2, err != nil returns 2",
 			args: args{
 				src: main(`
-				val, err := justDoIt()
+				val, err := Foo()
 				if err != nil {
 					return val, err
 				}`),
 			},
 			want: main(`
-				val, err := justDoIt()
+				val, err := Foo()
 				if err != nil {
-					return val, fmt.Errorf("justDoIt: %w", err)
+					return val, fmt.Errorf("Foo: %w", err)
 				}`),
 			wantErr: false,
 		},
 		{
+			name: "method and package",
+			args: args{
+				src: `package main
+				import (
+					"fee/fi/fo/fum"
+				)
+				func main() {
+					var foo Foo
+					val, err := foo.Foo()
+					if err != nil {
+						return val, err
+					}
+					v, err = fum.Foo()
+					if err != nil {
+						return val, err
+					}
+				}`,
+			},
+			want: `package main
+				import (
+					"fee/fi/fo/fum"
+				)
+				func main() {
+					var foo Foo
+					val, err := foo.Foo()
+					if err != nil {
+						return val, fmt.Errorf("Foo: %w", err)
+					}
+					v, err = fum.Foo()
+					if err != nil {
+						return val, fmt.Errorf("fum.Foo: %w", err)
+					}
+				}`,
+			wantErr: false,
+		},
+
+		{
 			name: "method",
 			args: args{
 				src: main(`
-				val, err := shia.justDoIt()
+				var foo Foo
+				val, err := foo.Foo()
 				if err != nil {
 					return val, err
 				}`),
 			},
 			want: main(`
-				val, err := shia.justDoIt()
+				var foo Foo
+				val, err := foo.Foo()
 				if err != nil {
-					return val, fmt.Errorf("shia.justDoIt: %w", err)
+					return val, fmt.Errorf("Foo: %w", err)
 				}`),
 			wantErr: false,
 		},
@@ -75,13 +114,13 @@ func TestDo(t *testing.T) {
 			name: "chaos",
 			args: args{
 				src: main(`
-				val := shia.justDoIt()
+				val := foo.Foo()
 				if err != nil {
 					return err
 				}`),
 			},
 			want: main(`
-				val := shia.justDoIt()
+				val := foo.Foo()
 				if err != nil {
 					return err
 				}`),
@@ -91,15 +130,15 @@ func TestDo(t *testing.T) {
 			name: "func returns 2, err != nil returns 1",
 			args: args{
 				src: main(`
-				val, err := justDoIt()
+				val, err := Foo()
 				if err != nil {
 					return err
 				}`),
 			},
 			want: main(`
-				val, err := justDoIt()
+				val, err := Foo()
 				if err != nil {
-					return fmt.Errorf("justDoIt: %w", err)
+					return fmt.Errorf("Foo: %w", err)
 				}`),
 			wantErr: false,
 		},
@@ -107,7 +146,7 @@ func TestDo(t *testing.T) {
 			name: "with comments",
 			args: args{
 				src: main(`
-				val, err := justDoIt() // nice...
+				val, err := Foo() // nice...
 				// is this nil?
 				if err != nil {
 					// return that thang
@@ -115,11 +154,11 @@ func TestDo(t *testing.T) {
 				}`),
 			},
 			want: main(`
-				val, err := justDoIt() // nice...
+				val, err := Foo() // nice...
 				// is this nil?
 				if err != nil {
 					// return that thang
-					return fmt.Errorf("justDoIt: %w", err) // return it here
+					return fmt.Errorf("Foo: %w", err) // return it here
 				}`),
 			wantErr: false,
 		},
@@ -127,23 +166,23 @@ func TestDo(t *testing.T) {
 			name: "multiple",
 			args: args{
 				src: main(`
-				err := shia.justDoIt()
+				err := foo.Foo()
 				if err != nil {
 					return err
 				}
-				err = dontLetYourDreamsBeDreams()
+				err = bar()
 				if err != nil {
 					return err
 				}`),
 			},
 			want: main(`
-				err := shia.justDoIt()
+				err := foo.Foo()
 				if err != nil {
-					return fmt.Errorf("shia.justDoIt: %w", err)
+					return fmt.Errorf("Foo: %w", err)
 				}
-				err = dontLetYourDreamsBeDreams()
+				err = bar()
 				if err != nil {
-					return fmt.Errorf("dontLetYourDreamsBeDreams: %w", err)
+					return fmt.Errorf("bar: %w", err)
 				}`),
 			wantErr: false,
 		},
@@ -151,15 +190,15 @@ func TestDo(t *testing.T) {
 			name: "func returns 1, err != nil returns 1",
 			args: args{
 				src: main(`
-				err := dontLetYourDreamsBeDreams()
+				err := bar()
 				if err != nil {
 					return err
 				}`),
 			},
 			want: main(`
-				err := dontLetYourDreamsBeDreams()
+				err := bar()
 				if err != nil {
-					return fmt.Errorf("dontLetYourDreamsBeDreams: %w", err)
+					return fmt.Errorf("bar: %w", err)
 				}`),
 			wantErr: false,
 		},
@@ -167,15 +206,15 @@ func TestDo(t *testing.T) {
 			name: "nested func calls",
 			args: args{
 				src: main(`
-				err := dontLetYourDreamsBeDreams(justDoIt())
+				err := bar(Foo())
 				if err != nil {
 					return err
 				}`),
 			},
 			want: main(`
-				err := dontLetYourDreamsBeDreams(justDoIt())
+				err := bar(Foo())
 				if err != nil {
-					return fmt.Errorf("dontLetYourDreamsBeDreams: %w", err)
+					return fmt.Errorf("bar: %w", err)
 				}`),
 			wantErr: false,
 		},
@@ -183,15 +222,15 @@ func TestDo(t *testing.T) {
 			name: "nested func calls",
 			args: args{
 				src: main(`
-				err := dontLetYourDreamsBeDreams(justDoIt())
+				err := bar(Foo())
 				if err != nil {
 					return err
 				}`),
 			},
 			want: main(`
-				err := dontLetYourDreamsBeDreams(justDoIt())
+				err := bar(Foo())
 				if err != nil {
-					return fmt.Errorf("dontLetYourDreamsBeDreams: %w", err)
+					return fmt.Errorf("bar: %w", err)
 				}`),
 			wantErr: false,
 		},

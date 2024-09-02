@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strings"
 )
 
 type Config struct{}
@@ -32,6 +33,7 @@ const (
 )
 
 func replace(file *ast.File, src string) (string, bool) {
+	imports := make(map[string]struct{})
 	hasReplaced := false
 	latestWrappedErr := ""
 
@@ -43,8 +45,10 @@ func replace(file *ast.File, src string) (string, bool) {
 			return Next
 		}
 		switch n := node.(type) {
+		case *ast.GenDecl:
+			collectImports(*n, imports)
 		case *ast.AssignStmt:
-			latestWrappedErr = wrappedErr(*n)
+			latestWrappedErr = wrappedErr(*n, imports)
 		case *ast.IfStmt:
 			var ok bool
 			src, ok = replaceWithWrappedErr(*n, src, latestWrappedErr)
@@ -54,17 +58,35 @@ func replace(file *ast.File, src string) (string, bool) {
 			hasReplaced = true
 			return Skip
 		}
-		// fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End())])
+		// fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
 		return Next
 	})
 	return src, hasReplaced
 }
 
-func wrappedErr(assignStmt ast.AssignStmt) string {
+func collectImports(genDecl ast.GenDecl, imports map[string]struct{}) {
+	if genDecl.Tok != token.IMPORT {
+		return
+	}
+	for _, spec := range genDecl.Specs {
+		if spec, ok := spec.(*ast.ImportSpec); ok {
+			imports[stripPackage(spec.Path.Value)] = struct{}{}
+		}
+	}
+}
+
+func stripPackage(pkg string) string {
+	// path/filepath => filepath
+	pkg = pkg[strings.LastIndex(pkg, "/")+1 : len(pkg)-1]
+	pkg = strings.ReplaceAll(pkg, "\"", "")
+	return pkg
+}
+
+func wrappedErr(assignStmt ast.AssignStmt, imports map[string]struct{}) string {
 	if !returnsErr(assignStmt) {
 		return ""
 	}
-	name, ok := callsFunc(assignStmt)
+	name, ok := callsFunc(assignStmt, imports)
 	if !ok {
 		return ""
 	}
@@ -78,27 +100,33 @@ func returnsErr(assignStmt ast.AssignStmt) bool {
 	return false
 }
 
-func callsFunc(assignStmt ast.AssignStmt) (string, bool) {
+func callsFunc(assignStmt ast.AssignStmt, imports map[string]struct{}) (string, bool) {
 	for _, rhs := range assignStmt.Rhs {
 		switch n := rhs.(type) {
 		case *ast.CallExpr:
-			return funcName(*n), true
+			return funcName(*n, imports), true
 		}
 	}
 	return "", false
 }
 
-func funcName(callExpr ast.CallExpr) string {
+func funcName(callExpr ast.CallExpr, imports map[string]struct{}) string {
+	var name string
 	switch fun := callExpr.Fun.(type) {
 	case *ast.Ident:
-		return fun.Name
+		name = fun.Name
 	case *ast.SelectorExpr:
 		if obj, ok := fun.X.(*ast.Ident); ok {
-			return obj.Name + "." + fun.Sel.Name
+			// support functions such as os.Read()
+			if _, ok = imports[obj.Name]; ok {
+				name = obj.Name + "." + fun.Sel.Name
+			} else {
+				// don't support methods such as b.Baz()
+				name = fun.Sel.Name
+			}
 		}
-		return fun.Sel.Name
 	}
-	return ""
+	return name
 }
 
 func replaceWithWrappedErr(ifStmt ast.IfStmt, src, newErr string) (string, bool) {
