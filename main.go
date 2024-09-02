@@ -15,6 +15,11 @@ func main() {
 		fmt.Println(err)
 		return
 	}
+	// err := testing()
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	return
+	// }
 }
 
 func cli() error {
@@ -74,5 +79,44 @@ func processFile(path string) error {
 	if err != nil {
 		return fmt.Errorf("os.WriteFile: %w", err)
 	}
+	return nil
+}
+
+func testing() error {
+	src := `package main
+	import (
+		"foo"
+		"fee/fi/fo"
+		"fiddly"
+	)
+	func A() error {
+		b := foo.Bar{}
+		err := b.Baz()
+		if err != nil {
+			return err
+		}
+		err = fo.Fum()
+		if err != nil {
+			return err
+		}
+		err = meep()
+		if err != nil {
+			return err
+		}
+		err = fiddly.Widdly().Weddly().Woddly()
+		if err != nil {
+			return err
+		}
+		err = a().b().c().d()
+		if err != nil {
+			return err
+		}
+	}`
+	fmt.Println(src, "\n---")
+	src, err := errhance.Do(errhance.Config{}, src)
+	if err != nil {
+		return fmt.Errorf("errhance.Do: %w", err)
+	}
+	fmt.Println(src)
 	return nil
 }
