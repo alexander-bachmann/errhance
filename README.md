@@ -7,7 +7,7 @@ func foo(x int) (int, error) {
   if err != nil {
     return 0, err
   }
-  z, err := baz(y)
+  z, err := b.Baz(y)
   if err != nil {
     return 0, err
   }
@@ -22,9 +22,9 @@ func foo(x int) (int, error) {
   if err != nil {
     return 0, fmt.Errorf("bar: %w", err)
   }
-  z, err := baz(y)
+  z, err := b.Baz(y)
   if err != nil {
-    return 0, fmt.Errorf("baz: %w", err)
+    return 0, fmt.Errorf("b.Baz: %w", err)
   }
   return z, nil
 }
