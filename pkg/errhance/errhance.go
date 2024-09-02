@@ -116,12 +116,16 @@ func funcName(callExpr ast.CallExpr, imports map[string]struct{}) string {
 	case *ast.Ident:
 		name = fun.Name
 	case *ast.SelectorExpr:
-		if obj, ok := fun.X.(*ast.Ident); ok {
-			// support functions such as os.Read()
-			if _, ok = imports[obj.Name]; ok {
-				name = obj.Name + "." + fun.Sel.Name
+		switch x := fun.X.(type) {
+		case *ast.CallExpr:
+			// support package functions e.g. fee.Fi().Fo().Fum()
+			name = funcName(*x, imports) + "." + fun.Sel.Name
+		case *ast.Ident:
+			// support package functions e.g. os.Read()
+			if _, ok := imports[x.Name]; ok {
+				name = x.Name + "." + fun.Sel.Name
 			} else {
-				// don't support methods such as b.Baz()
+				// don't support methods e.g. b.Baz()
 				name = fun.Sel.Name
 			}
 		}

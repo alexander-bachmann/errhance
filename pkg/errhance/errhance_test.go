@@ -234,6 +234,70 @@ func TestDo(t *testing.T) {
 				}`),
 			wantErr: false,
 		},
+		{
+			name: "all",
+			args: args{
+				src: `package main
+  import (
+    "foo"
+    "fee/fi/fo"
+    "fiddly"
+  )
+  func A() error {
+    b := foo.Bar{}
+    err := b.Baz()
+    if err != nil {
+      return err
+    }
+    err = fo.Fum()
+    if err != nil {
+      return err
+    }
+    err = meep()
+    if err != nil {
+      return err
+    }
+    err = fiddly.Widdly().Weddly().Woddly()
+    if err != nil {
+      return err
+    }
+    err = a().b().c().d()
+    if err != nil {
+      return err
+    }
+  }`,
+			},
+			want: `package main
+  import (
+    "foo"
+    "fee/fi/fo"
+    "fiddly"
+  )
+  func A() error {
+    b := foo.Bar{}
+    err := b.Baz()
+    if err != nil {
+      return fmt.Errorf("Baz: %w", err)
+    }
+    err = fo.Fum()
+    if err != nil {
+      return fmt.Errorf("fo.Fum: %w", err)
+    }
+    err = meep()
+    if err != nil {
+      return fmt.Errorf("meep: %w", err)
+    }
+    err = fiddly.Widdly().Weddly().Woddly()
+    if err != nil {
+      return fmt.Errorf("fiddly.Widdly.Weddly.Woddly: %w", err)
+    }
+    err = a().b().c().d()
+    if err != nil {
+      return fmt.Errorf("a.b.c.d: %w", err)
+    }
+  }`,
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
