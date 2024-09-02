@@ -2,32 +2,42 @@
 
 ### Before
 ```go
-func foo(x int) (int, error) {
-  y, err := bar(x)
-  if err != nil {
-    return 0, err
+package main
+  import (
+    "foo"
+    "fee/fi/fo"
+  )
+  func A() error {
+    b := foo.Bar{}
+    err := b.Baz()
+    if err != nil {
+      return err
+    }
+    err = fo.Fum()
+    if err != nil {
+      return err
+    }
   }
-  z, err := b.Baz(y)
-  if err != nil {
-    return 0, err
-  }
-  return z, nil
-}
 ```
 
 ### After
 ```go
-func foo(x int) (int, error) {
-  y, err := bar(x)
-  if err != nil {
-    return 0, fmt.Errorf("bar: %w", err)
+package main
+  import (
+    "foo"
+    "fee/fi/fo"
+  )
+  func A() error {
+    b := foo.Bar{}
+    err := b.Baz()
+    if err != nil {
+      return fmt.Errorf("Baz: %w", err)
+    }
+    err = fo.Fum()
+    if err != nil {
+      return fmt.Errorf("fo.Fum: %w", err)
+    }
   }
-  z, err := b.Baz(y)
-  if err != nil {
-    return 0, fmt.Errorf("b.Baz: %w", err)
-  }
-  return z, nil
-}
 ```
 
 ### Usage
