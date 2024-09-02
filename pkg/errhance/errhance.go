@@ -55,7 +55,7 @@ func replace(config Config, file *ast.File, src string) (string, bool) {
 			latestWrappedErr = wrappedErr(config, *n, imports)
 		case *ast.IfStmt:
 			var ok bool
-			src, ok = replaceWithWrappedErr(*n, src, latestWrappedErr)
+			src, ok = replaceWithWrappedErr(config, *n, src, latestWrappedErr, imports)
 			if !ok {
 				break
 			}
@@ -143,7 +143,7 @@ func funcName(config Config, callExpr ast.CallExpr, imports map[string]struct{})
 	return name
 }
 
-func replaceWithWrappedErr(ifStmt ast.IfStmt, src, newErr string) (string, bool) {
+func replaceWithWrappedErr(config Config, ifStmt ast.IfStmt, src, newErr string, imports map[string]struct{}) (string, bool) {
 	if newErr == "" {
 		return src, false
 	}
@@ -153,6 +153,12 @@ func replaceWithWrappedErr(ifStmt ast.IfStmt, src, newErr string) (string, bool)
 	pos := returnErrPos(ifStmt)
 	if pos == -1 {
 		return src, false
+	}
+	// if ifStmt has an assignStmt, it means it uses the shorthand err check syntax
+	// e.g. if err := foo(); err != nil { }
+	switch a := ifStmt.Init.(type) {
+	case *ast.AssignStmt:
+		newErr = wrappedErr(config, *a, imports)
 	}
 	return src[:pos-1] + newErr + src[pos+2:], true
 }
