@@ -10,22 +10,35 @@ import (
 )
 
 func main() {
-	currentDir, err := os.Getwd()
+	err := cli()
 	if err != nil {
-		fmt.Printf("os.Getwd: %v", err)
+		fmt.Println(err)
 		return
 	}
+}
+
+func cli() error {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("os.Getwd: %w", err)
+	}
 	if !isGitDirectory(currentDir) {
-		fmt.Println("not at the root of a git directory; not risking it for you")
-		return
+		return fmt.Errorf("not at the root of a git directory; not risking it")
 	}
 	err = filepath.Walk(currentDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("filepath.Walk: %w", err)
 		}
 		if info.IsDir() ||
 			!strings.HasSuffix(info.Name(), ".go") ||
-			strings.HasSuffix(info.Name(), "_test.go") {
+			strings.HasSuffix(info.Name(), "_test.go") ||
+			// skip generated code
+			strings.HasSuffix(info.Name(), ".sql.go") ||
+			strings.HasSuffix(info.Name(), "_gen.go") ||
+			strings.HasSuffix(info.Name(), "_mock.go") ||
+			strings.HasSuffix(info.Name(), "_pb.go") ||
+			strings.HasSuffix(info.Name(), ".pb.go") ||
+			strings.HasSuffix(info.Name(), "_stringer.go") {
 			return nil
 		}
 		err = processFile(path)
@@ -35,9 +48,9 @@ func main() {
 		return nil
 	})
 	if err != nil {
-		fmt.Printf("filepath.Walk: %v", err)
-		return
+		return fmt.Errorf("filepath.Walk: %w", err)
 	}
+	return nil
 }
 
 func isGitDirectory(dir string) bool {
