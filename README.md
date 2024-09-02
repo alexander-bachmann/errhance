@@ -31,7 +31,7 @@ func foo(x int) (int, error) {
 ```
 
 ### CLI Usage
-```
+```bash
 go install github.com/alexander-bachmann/errhance@latest
 cd <your_go_repo>
 errhance
