@@ -8,7 +8,11 @@ import (
 	"strings"
 )
 
-type Config struct{}
+type Config struct {
+	// true: err := foo.Baz() => fmt.Errorf("Baz: %w", err)
+	// false: err := foo.Baz() => fmt.Errorf("foo.Baz: %w", err)
+	OmitMethodObjName bool
+}
 
 func Do(config Config, src string) (string, error) {
 	for {
@@ -19,7 +23,7 @@ func Do(config Config, src string) (string, error) {
 			return src, fmt.Errorf("parser.ParseFile: %w", err)
 		}
 		var ok bool
-		src, ok = replace(file, src)
+		src, ok = replace(config, file, src)
 		if !ok {
 			break
 		}
@@ -32,7 +36,7 @@ const (
 	Skip = false
 )
 
-func replace(file *ast.File, src string) (string, bool) {
+func replace(config Config, file *ast.File, src string) (string, bool) {
 	imports := make(map[string]struct{})
 	hasReplaced := false
 	latestWrappedErr := ""
@@ -48,7 +52,7 @@ func replace(file *ast.File, src string) (string, bool) {
 		case *ast.GenDecl:
 			collectImports(*n, imports)
 		case *ast.AssignStmt:
-			latestWrappedErr = wrappedErr(*n, imports)
+			latestWrappedErr = wrappedErr(config, *n, imports)
 		case *ast.IfStmt:
 			var ok bool
 			src, ok = replaceWithWrappedErr(*n, src, latestWrappedErr)
@@ -69,8 +73,14 @@ func collectImports(genDecl ast.GenDecl, imports map[string]struct{}) {
 		return
 	}
 	for _, spec := range genDecl.Specs {
-		if spec, ok := spec.(*ast.ImportSpec); ok {
-			imports[stripPackage(spec.Path.Value)] = struct{}{}
+		switch s := spec.(type) {
+		case *ast.ImportSpec:
+			// if overwriting import package name
+			if s.Name != nil {
+				imports[s.Name.Name] = struct{}{}
+			} else {
+				imports[stripPackage(s.Path.Value)] = struct{}{}
+			}
 		}
 	}
 }
@@ -82,11 +92,11 @@ func stripPackage(pkg string) string {
 	return pkg
 }
 
-func wrappedErr(assignStmt ast.AssignStmt, imports map[string]struct{}) string {
+func wrappedErr(config Config, assignStmt ast.AssignStmt, imports map[string]struct{}) string {
 	if !returnsErr(assignStmt) {
 		return ""
 	}
-	name, ok := callsFunc(assignStmt, imports)
+	name, ok := callsFunc(config, assignStmt, imports)
 	if !ok || name == "" {
 		return ""
 	}
@@ -100,17 +110,17 @@ func returnsErr(assignStmt ast.AssignStmt) bool {
 	return false
 }
 
-func callsFunc(assignStmt ast.AssignStmt, imports map[string]struct{}) (string, bool) {
+func callsFunc(config Config, assignStmt ast.AssignStmt, imports map[string]struct{}) (string, bool) {
 	for _, rhs := range assignStmt.Rhs {
 		switch n := rhs.(type) {
 		case *ast.CallExpr:
-			return funcName(*n, imports), true
+			return funcName(config, *n, imports), true
 		}
 	}
 	return "", false
 }
 
-func funcName(callExpr ast.CallExpr, imports map[string]struct{}) string {
+func funcName(config Config, callExpr ast.CallExpr, imports map[string]struct{}) string {
 	var name string
 	switch fun := callExpr.Fun.(type) {
 	case *ast.Ident:
@@ -119,10 +129,10 @@ func funcName(callExpr ast.CallExpr, imports map[string]struct{}) string {
 		switch x := fun.X.(type) {
 		case *ast.CallExpr:
 			// support package functions e.g. fee.Fi().Fo().Fum()
-			name = funcName(*x, imports) + "." + fun.Sel.Name
+			name = funcName(config, *x, imports) + "." + fun.Sel.Name
 		case *ast.Ident:
 			// support package functions e.g. os.Read()
-			if _, ok := imports[x.Name]; ok {
+			if _, ok := imports[x.Name]; ok || !config.OmitMethodObjName {
 				name = x.Name + "." + fun.Sel.Name
 			} else {
 				// don't support methods e.g. b.Baz()

@@ -58,6 +58,7 @@ func TestDo(t *testing.T) {
 		{
 			name: "method and package",
 			args: args{
+				config: Config{OmitMethodObjName: true},
 				src: `package main
 				import (
 					"fee/fi/fo/fum"
@@ -95,6 +96,7 @@ func TestDo(t *testing.T) {
 		{
 			name: "method",
 			args: args{
+				config: Config{OmitMethodObjName: true},
 				src: main(`
 				var foo Foo
 				val, err := foo.Foo()
@@ -165,6 +167,7 @@ func TestDo(t *testing.T) {
 		{
 			name: "multiple",
 			args: args{
+				config: Config{OmitMethodObjName: true},
 				src: main(`
 				err := foo.Foo()
 				if err != nil {
@@ -241,7 +244,7 @@ func TestDo(t *testing.T) {
   import (
     "foo"
     "fee/fi/fo"
-    "fiddly"
+    fid "fiddly"
   )
   func A() error {
     b := foo.Bar{}
@@ -257,7 +260,7 @@ func TestDo(t *testing.T) {
     if err != nil {
       return err
     }
-    err = fiddly.Widdly().Weddly().Woddly()
+    err = fid.Widdly().Weddly().Woddly()
     if err != nil {
       return err
     }
@@ -271,13 +274,13 @@ func TestDo(t *testing.T) {
   import (
     "foo"
     "fee/fi/fo"
-    "fiddly"
+    fid "fiddly"
   )
   func A() error {
     b := foo.Bar{}
     err := b.Baz()
     if err != nil {
-      return fmt.Errorf("Baz: %w", err)
+      return fmt.Errorf("b.Baz: %w", err)
     }
     err = fo.Fum()
     if err != nil {
@@ -287,9 +290,9 @@ func TestDo(t *testing.T) {
     if err != nil {
       return fmt.Errorf("meep: %w", err)
     }
-    err = fiddly.Widdly().Weddly().Woddly()
+    err = fid.Widdly().Weddly().Woddly()
     if err != nil {
-      return fmt.Errorf("fiddly.Widdly.Weddly.Woddly: %w", err)
+      return fmt.Errorf("fid.Widdly.Weddly.Woddly: %w", err)
     }
     err = a().b().c().d()
     if err != nil {
