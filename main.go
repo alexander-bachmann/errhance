@@ -87,7 +87,7 @@ func testing() error {
 	import (
 		"foo"
 		"fee/fi/fo"
-		"fiddly"
+		fid "fiddly"
 	)
 	func A() error {
 		b := foo.Bar{}
@@ -103,7 +103,7 @@ func testing() error {
 		if err != nil {
 			return err
 		}
-		err = fiddly.Widdly().Weddly().Woddly()
+		err = fid.Widdly().Weddly().Woddly()
 		if err != nil {
 			return err
 		}
