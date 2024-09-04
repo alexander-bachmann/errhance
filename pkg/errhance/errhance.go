@@ -8,11 +8,7 @@ import (
 	"strings"
 )
 
-type Config struct {
-	// true: err := foo.Baz() => fmt.Errorf("Baz: %w", err)
-	// false: err := foo.Baz() => fmt.Errorf("foo.Baz: %w", err)
-	OmitMethodObjName bool
-}
+type Config struct{}
 
 func Do(config Config, src string) (string, error) {
 	for {
@@ -37,7 +33,6 @@ const (
 )
 
 func replace(config Config, file *ast.File, src string) (string, bool) {
-	imports := make(map[string]struct{})
 	hasReplaced := false
 	latestWrappedErr := ""
 
@@ -49,13 +44,11 @@ func replace(config Config, file *ast.File, src string) (string, bool) {
 			return Next
 		}
 		switch n := node.(type) {
-		case *ast.GenDecl:
-			collectImports(*n, imports)
 		case *ast.AssignStmt:
-			latestWrappedErr = wrappedErr(config, *n, imports)
+			latestWrappedErr = wrappedErr(*n)
 		case *ast.IfStmt:
 			var ok bool
-			src, ok = replaceWithWrappedErr(config, *n, src, latestWrappedErr, imports)
+			src, ok = replaceWithWrappedErr(*n, src, latestWrappedErr)
 			if !ok {
 				break
 			}
@@ -68,35 +61,11 @@ func replace(config Config, file *ast.File, src string) (string, bool) {
 	return src, hasReplaced
 }
 
-func collectImports(genDecl ast.GenDecl, imports map[string]struct{}) {
-	if genDecl.Tok != token.IMPORT {
-		return
-	}
-	for _, spec := range genDecl.Specs {
-		switch s := spec.(type) {
-		case *ast.ImportSpec:
-			// if overwriting import package name
-			if s.Name != nil {
-				imports[s.Name.Name] = struct{}{}
-			} else {
-				imports[stripPackage(s.Path.Value)] = struct{}{}
-			}
-		}
-	}
-}
-
-func stripPackage(pkg string) string {
-	// path/filepath => filepath
-	pkg = pkg[strings.LastIndex(pkg, "/")+1 : len(pkg)-1]
-	pkg = strings.ReplaceAll(pkg, "\"", "")
-	return pkg
-}
-
-func wrappedErr(config Config, assignStmt ast.AssignStmt, imports map[string]struct{}) string {
+func wrappedErr(assignStmt ast.AssignStmt) string {
 	if !returnsErr(assignStmt) {
 		return ""
 	}
-	name, ok := callsFunc(config, assignStmt, imports)
+	name, ok := callsFunc(assignStmt)
 	if !ok || name == "" {
 		return ""
 	}
@@ -110,40 +79,60 @@ func returnsErr(assignStmt ast.AssignStmt) bool {
 	return false
 }
 
-func callsFunc(config Config, assignStmt ast.AssignStmt, imports map[string]struct{}) (string, bool) {
+func callsFunc(assignStmt ast.AssignStmt) (string, bool) {
 	for _, rhs := range assignStmt.Rhs {
 		switch n := rhs.(type) {
 		case *ast.CallExpr:
-			return funcName(config, *n, imports), true
+			return callTrace(*n), true
 		}
 	}
 	return "", false
 }
 
-func funcName(config Config, callExpr ast.CallExpr, imports map[string]struct{}) string {
-	var name string
-	switch fun := callExpr.Fun.(type) {
+// a.b.c().d() => a.b.c.d
+// a(b(c(), d()) => a
+func callTrace(callExpr ast.CallExpr) string {
+	return strings.TrimSuffix(callExprNext(callExpr, ""), ".")
+}
+
+func callExprNext(callExpr ast.CallExpr, name string) string {
+	switch f := callExpr.Fun.(type) {
 	case *ast.Ident:
-		name = fun.Name
+		name += f.Name
 	case *ast.SelectorExpr:
-		switch x := fun.X.(type) {
-		case *ast.CallExpr:
-			// support package functions e.g. fee.Fi().Fo().Fum()
-			name = funcName(config, *x, imports) + "." + fun.Sel.Name
-		case *ast.Ident:
-			// support package functions e.g. os.Read()
-			if _, ok := imports[x.Name]; ok || !config.OmitMethodObjName {
-				name = x.Name + "." + fun.Sel.Name
-			} else {
-				// don't support methods e.g. b.Baz()
-				name = fun.Sel.Name
-			}
+		if f.Sel != nil {
+			name += selectorExprNext(*f, name) + f.Sel.Name
+		} else {
+			name += selectorExprNext(*f, name)
 		}
+	}
+	return appendDot(name)
+}
+
+func selectorExprNext(selectorExpr ast.SelectorExpr, name string) string {
+	switch x := selectorExpr.X.(type) {
+	case *ast.Ident:
+		name += x.Name
+	case *ast.CallExpr:
+		name += callExprNext(*x, name)
+	case *ast.SelectorExpr:
+		if x.Sel != nil {
+			name += selectorExprNext(*x, name) + x.Sel.Name
+		} else {
+			name += selectorExprNext(*x, name)
+		}
+	}
+	return appendDot(name)
+}
+
+func appendDot(name string) string {
+	if name[len(name)-1] != '.' {
+		return name + "."
 	}
 	return name
 }
 
-func replaceWithWrappedErr(config Config, ifStmt ast.IfStmt, src, newErr string, imports map[string]struct{}) (string, bool) {
+func replaceWithWrappedErr(ifStmt ast.IfStmt, src, newErr string) (string, bool) {
 	if newErr == "" {
 		return src, false
 	}
@@ -158,7 +147,7 @@ func replaceWithWrappedErr(config Config, ifStmt ast.IfStmt, src, newErr string,
 	// e.g. if err := foo(); err != nil { }
 	switch a := ifStmt.Init.(type) {
 	case *ast.AssignStmt:
-		newErr = wrappedErr(config, *a, imports)
+		newErr = wrappedErr(*a)
 	}
 	return src[:pos-1] + newErr + src[pos+2:], true
 }
@@ -195,4 +184,29 @@ func returnErrPos(ifStmt ast.IfStmt) int {
 		}
 	}
 	return -1
+}
+
+// unused but interesting
+func collectImports(genDecl ast.GenDecl, imports map[string]struct{}) {
+	if genDecl.Tok != token.IMPORT {
+		return
+	}
+	for _, spec := range genDecl.Specs {
+		switch s := spec.(type) {
+		case *ast.ImportSpec:
+			// if overwriting import package name
+			if s.Name != nil {
+				imports[s.Name.Name] = struct{}{}
+			} else {
+				imports[stripPackage(s.Path.Value)] = struct{}{}
+			}
+		}
+	}
+}
+
+func stripPackage(pkg string) string {
+	// path/filepath => filepath
+	pkg = pkg[strings.LastIndex(pkg, "/")+1 : len(pkg)-1]
+	pkg = strings.ReplaceAll(pkg, "\"", "")
+	return pkg
 }

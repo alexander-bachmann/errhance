@@ -58,7 +58,6 @@ func TestDo(t *testing.T) {
 		{
 			name: "method and package",
 			args: args{
-				config: Config{OmitMethodObjName: true},
 				src: `package main
 				import (
 					"fee/fi/fo/fum"
@@ -83,7 +82,7 @@ func TestDo(t *testing.T) {
 					var foo Foo
 					val, err := foo.Foo()
 					if err != nil {
-						return val, fmt.Errorf("Foo: %w", err)
+						return val, fmt.Errorf("foo.Foo: %w", err)
 					}
 					v, err = fum.Foo()
 					if err != nil {
@@ -96,7 +95,6 @@ func TestDo(t *testing.T) {
 		{
 			name: "method",
 			args: args{
-				config: Config{OmitMethodObjName: true},
 				src: main(`
 				var foo Foo
 				val, err := foo.Foo()
@@ -108,7 +106,7 @@ func TestDo(t *testing.T) {
 				var foo Foo
 				val, err := foo.Foo()
 				if err != nil {
-					return val, fmt.Errorf("Foo: %w", err)
+					return val, fmt.Errorf("foo.Foo: %w", err)
 				}`),
 			wantErr: false,
 		},
@@ -167,7 +165,6 @@ func TestDo(t *testing.T) {
 		{
 			name: "multiple",
 			args: args{
-				config: Config{OmitMethodObjName: true},
 				src: main(`
 				err := foo.Foo()
 				if err != nil {
@@ -181,7 +178,7 @@ func TestDo(t *testing.T) {
 			want: main(`
 				err := foo.Foo()
 				if err != nil {
-					return fmt.Errorf("Foo: %w", err)
+					return fmt.Errorf("foo.Foo: %w", err)
 				}
 				err = bar()
 				if err != nil {
