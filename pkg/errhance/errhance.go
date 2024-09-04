@@ -126,7 +126,7 @@ func selectorExprNext(selectorExpr ast.SelectorExpr, name string) string {
 }
 
 func appendDot(name string) string {
-	if name[len(name)-1] != '.' {
+	if len(name) > 0 && name[len(name)-1] != '.' {
 		return name + "."
 	}
 	return name
