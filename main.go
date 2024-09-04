@@ -84,34 +84,43 @@ func processFile(path string) error {
 
 func testing() error {
 	src := `package main
-	import (
-		"foo"
-		"fee/fi/fo"
-		fid "fiddly"
-	)
-	func A() error {
-		b := foo.Bar{}
-		err := b.Baz()
-		if err != nil {
-			return err
-		}
-		err = fo.Fum()
-		if err != nil {
-			return err
-		}
-		err = meep()
-		if err != nil {
-			return err
-		}
-		err = fid.Widdly().Weddly().Woddly()
-		if err != nil {
-			return err
-		}
-		err = a().b().c().d()
-		if err != nil {
-			return err
-		}
-	}`
+
+import (
+	"foo"
+	"fee/fi/fo"
+	fid "fiddly"
+)
+
+func (f *Flip) Flop() error {
+	bar := foo.Bar{}
+	err := bar.Baz()
+	if err != nil {
+		return err
+	}
+	err = fo.Fum()
+	if err != nil {
+		return err
+	}
+	err = meep()
+	if err != nil {
+		return err
+	}
+	err = fid.Widdly().Weddly().Woddly()
+	if err != nil {
+		return err
+	}
+	err = a.b.c().d()
+	if err != nil {
+		return err
+	}
+	err = a(b(c(), d()))
+	if err != nil {
+		return err
+	}
+	if err = fid.Fod(); err != nil {
+		return err
+	}
+}`
 	fmt.Println(src, "\n---")
 	src, err := errhance.Do(errhance.Config{}, src)
 	if err != nil {
