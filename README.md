@@ -2,71 +2,57 @@
 
 ### Before
 ```go
-package main
+func Foo() (int, error) {
+  body, err := Get("https://example.com")
+  if err != nil {
+    return 0, err
+  }
+  num, err := strconv.Atoi(body)
+  if err != nil {
+    return 0, err
+  }
+  return num, nil
+}
 
-import (
-  "foo"
-  "fee/fi/fo"
-  fid "fiddly"
-)
-
-func A() error {
-  b := foo.Bar{}
-  err := b.Baz()
+func Get(url string) (string, error) {
+  resp, err := http.Get(url)
   if err != nil {
-    return err
+    return "", err
   }
-  err = fo.Fum()
+  defer resp.Body.Close()
+  body, err := io.ReadAll(resp.Body)
   if err != nil {
-    return err
+    return "", err
   }
-  err = meep()
-  if err != nil {
-    return err
-  }
-  err = fid.Widdly().Weddly().Woddly()
-  if err != nil {
-    return err
-  }
-  err = a().b().c().d()
-  if err != nil {
-    return err
-  }
+  return string(body), nil
 }
 ```
 
 ### After
 ```go
-package main
+func Foo() (int, error) {
+  body, err := Get("https://example.com")
+  if err != nil {
+    return 0, fmt.Errorf("Get: %w", err)
+  }
+  num, err := strconv.Atoi(body)
+  if err != nil {
+    return 0, fmt.Errorf("strconv.Atoi: %w", err)
+  }
+  return num, nil
+}
 
-import (
-  "foo"
-  "fee/fi/fo"
-  fid "fiddly"
-)
-
-func A() error {
-  b := foo.Bar{}
-  err := b.Baz()
+func Get(url string) (string, error) {
+  resp, err := http.Get(url)
   if err != nil {
-    return fmt.Errorf("b.Baz: %w", err)
+    return "", fmt.Errorf("http.Get: %w", err)
   }
-  err = fo.Fum()
+  defer resp.Body.Close()
+  body, err := io.ReadAll(resp.Body)
   if err != nil {
-    return fmt.Errorf("fo.Fum: %w", err)
+    return "", fmt.Errorf("io.ReadAll: %w", err)
   }
-  err = meep()
-  if err != nil {
-    return fmt.Errorf("meep: %w", err)
-  }
-  err = fid.Widdly().Weddly().Woddly()
-  if err != nil {
-    return fmt.Errorf("fid.Widdly.Weddly.Woddly: %w", err)
-  }
-  err = a().b().c().d()
-  if err != nil {
-    return fmt.Errorf("a.b.c.d: %w", err)
-  }
+  return string(body), nil
 }
 ```
 
