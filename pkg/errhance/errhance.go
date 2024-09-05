@@ -19,7 +19,7 @@ func Do(config Config, src string) (string, error) {
 			return src, fmt.Errorf("parser.ParseFile: %w", err)
 		}
 		var ok bool
-		src, ok = replace(config, file, src)
+		src, ok = replace(file, src)
 		if !ok {
 			break
 		}
@@ -32,9 +32,9 @@ const (
 	Skip = false
 )
 
-func replace(config Config, file *ast.File, src string) (string, bool) {
+func replace(file *ast.File, src string) (string, bool) {
 	hasReplaced := false
-	latestWrappedErr := ""
+	nearestWrappedErr := ""
 
 	ast.Inspect(file, func(node ast.Node) bool {
 		if hasReplaced {
@@ -44,11 +44,12 @@ func replace(config Config, file *ast.File, src string) (string, bool) {
 			return Next
 		}
 		switch n := node.(type) {
-		case *ast.AssignStmt:
-			latestWrappedErr = wrappedErr(*n)
-		case *ast.IfStmt:
+		case *ast.AssignStmt: // err := foo()
+			nearestWrappedErr = generateWrappedErr(*n) // fmt.Errorf("foo: %w", err)
+		case *ast.IfStmt: // if err != nil
 			var ok bool
-			src, ok = replaceWithWrappedErr(*n, src, latestWrappedErr)
+			// return err => return fmt.Errorf("foo: %w", err)
+			src, ok = replaceWithWrappedErr(*n, src, nearestWrappedErr)
 			if !ok {
 				break
 			}
@@ -61,7 +62,7 @@ func replace(config Config, file *ast.File, src string) (string, bool) {
 	return src, hasReplaced
 }
 
-func wrappedErr(assignStmt ast.AssignStmt) string {
+func generateWrappedErr(assignStmt ast.AssignStmt) string {
 	if !returnsErr(assignStmt) {
 		return ""
 	}
@@ -144,10 +145,10 @@ func replaceWithWrappedErr(ifStmt ast.IfStmt, src, newErr string) (string, bool)
 		return src, false
 	}
 	// if ifStmt has an assignStmt, it means it uses the shorthand err check syntax
-	// e.g. if err := foo(); err != nil { }
+	// e.g. if err := foo(); err != nil {}
 	switch a := ifStmt.Init.(type) {
 	case *ast.AssignStmt:
-		newErr = wrappedErr(*a)
+		newErr = generateWrappedErr(*a)
 	}
 	return src[:pos-1] + newErr + src[pos+2:], true
 }
@@ -184,29 +185,4 @@ func returnErrPos(ifStmt ast.IfStmt) int {
 		}
 	}
 	return -1
-}
-
-// unused but interesting
-func collectImports(genDecl ast.GenDecl, imports map[string]struct{}) {
-	if genDecl.Tok != token.IMPORT {
-		return
-	}
-	for _, spec := range genDecl.Specs {
-		switch s := spec.(type) {
-		case *ast.ImportSpec:
-			// if overwriting import package name
-			if s.Name != nil {
-				imports[s.Name.Name] = struct{}{}
-			} else {
-				imports[stripPackage(s.Path.Value)] = struct{}{}
-			}
-		}
-	}
-}
-
-func stripPackage(pkg string) string {
-	// path/filepath => filepath
-	pkg = pkg[strings.LastIndex(pkg, "/")+1 : len(pkg)-1]
-	pkg = strings.ReplaceAll(pkg, "\"", "")
-	return pkg
 }
