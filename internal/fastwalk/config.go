@@ -7,10 +7,12 @@ import (
 )
 
 type Config struct {
-	workFunc       func(ctx context.Context, path string) error
-	rootFilepath   string
-	numWorkers     int
-	includeHidden  bool
+	workFunc           func(ctx context.Context, path string) error
+	rootFilepath       string
+	numWorkers         int
+	includeHidden      bool
+	includeDirectories bool
+	// TODO: includeGeneratedFiles bool
 	onlyExtensions map[string]struct{}
 }
 
@@ -22,11 +24,12 @@ func NewConfig(workFunc func(ctx context.Context, path string) error, opts ...Op
 		wd = "." // fallback to current directory if os.Getwd() fails
 	}
 	cfg := Config{
-		workFunc:       workFunc,
-		rootFilepath:   wd,
-		numWorkers:     4,
-		includeHidden:  false,
-		onlyExtensions: make(map[string]struct{}),
+		workFunc:           workFunc,
+		rootFilepath:       wd,
+		numWorkers:         4,
+		includeHidden:      false,
+		includeDirectories: false,
+		onlyExtensions:     make(map[string]struct{}),
 	}
 	for _, opt := range opts {
 		opt(&cfg)

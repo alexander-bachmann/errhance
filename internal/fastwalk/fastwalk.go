@@ -8,7 +8,9 @@ import (
 	"sync"
 )
 
-func Walk(ctx context.Context, cfg Config) error {
+func Walk(cfg Config) error { return WalkContext(context.Background(), cfg) }
+
+func WalkContext(ctx context.Context, cfg Config) error {
 	// create a cancelable context to allow early termination if an error occurs
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -66,7 +68,7 @@ func Walk(ctx context.Context, cfg Config) error {
 				}
 				return nil
 			}
-			// skip hidden files or hidden directories if IncludeHidden is false.
+			// skip hidden files or hidden directories if includeHidden is false.
 			if !cfg.includeHidden && strings.HasPrefix(d.Name(), ".") {
 				if d.IsDir() {
 					// skip entire directory
@@ -75,7 +77,11 @@ func Walk(ctx context.Context, cfg Config) error {
 				// skip hidden file
 				return nil
 			}
-			// if OnlyExtensions is set, filter out files without matching extension
+			// skip directories if includeDirectories is false
+			if !cfg.includeDirectories && d.IsDir() {
+				return nil
+			}
+			// if onlyExtensions is set, filter out files without matching extension
 			if len(cfg.onlyExtensions) > 0 {
 				if _, ok := cfg.onlyExtensions[filepath.Ext(path)]; !ok {
 					return nil
