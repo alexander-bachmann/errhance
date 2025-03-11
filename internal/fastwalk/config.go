@@ -12,8 +12,7 @@ type Config struct {
 	numWorkers         int
 	includeHidden      bool
 	includeDirectories bool
-	// TODO: includeGeneratedFiles bool
-	onlyExtensions map[string]struct{}
+	onlyExtensions     map[string]struct{}
 }
 
 type Option func(*Config)

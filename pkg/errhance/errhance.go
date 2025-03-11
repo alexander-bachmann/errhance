@@ -8,23 +8,34 @@ import (
 	"strings"
 )
 
-type Config struct{}
+func containsOmitComment(src string) bool {
+	omitComments := []string{
+		"noeh", "no eh",
+		"noerrhance", "no errhance",
+	}
+	for _, comment := range omitComments {
+		if strings.Contains(src, "//") && strings.Contains(src, comment) {
+			return true
+		}
+	}
+	return false
+}
 
-func Do(config Config, src string) (string, error) {
+func Do(cfg Config) (string, error) {
 	for {
 		// recompute AST after each replacement
 		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, "", src, 0)
+		file, err := parser.ParseFile(fset, "", cfg.src, 0)
 		if err != nil {
-			return src, fmt.Errorf("parser.ParseFile: %w", err)
+			return cfg.src, fmt.Errorf("parser.ParseFile: %w", err)
 		}
 		var ok bool
-		src, ok = replace(file, src)
+		cfg.src, ok = replace(file, cfg.src)
 		if !ok {
 			break
 		}
 	}
-	return src, nil
+	return cfg.src, nil
 }
 
 const (
@@ -47,6 +58,9 @@ func replace(file *ast.File, src string) (string, bool) {
 		case *ast.AssignStmt: // err := foo()
 			nearestWrappedErr = generateWrappedErr(*n) // fmt.Errorf("foo: %w", err)
 		case *ast.IfStmt: // if err != nil
+			if containsOmitComment(src[int((*n).Pos())-1 : int((*n).End()-1)]) {
+				return Skip
+			}
 			var ok bool
 			// return err => return fmt.Errorf("foo: %w", err)
 			src, ok = replaceWithWrappedErr(*n, src, nearestWrappedErr)
@@ -56,6 +70,7 @@ func replace(file *ast.File, src string) (string, bool) {
 			hasReplaced = true
 			return Skip
 		}
+		// don't delete -- this is very helpful
 		// fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
 		return Next
 	})
@@ -74,6 +89,8 @@ func generateWrappedErr(assignStmt ast.AssignStmt) string {
 }
 
 func returnsErr(assignStmt ast.AssignStmt) bool {
+	// expect err to be the last return value
+	// 'foo, bar, err := Baz()', not 'foo, err, bar := Baz()'
 	if ident, ok := assignStmt.Lhs[len(assignStmt.Lhs)-1].(*ast.Ident); ok {
 		return ident.Name == "err"
 	}

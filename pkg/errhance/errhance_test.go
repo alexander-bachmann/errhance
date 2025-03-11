@@ -15,7 +15,6 @@ func main() {
 func TestDo(t *testing.T) {
 	type args struct {
 		config Config
-		src    string
 	}
 	tests := []struct {
 		name    string
@@ -26,11 +25,11 @@ func TestDo(t *testing.T) {
 		{
 			name: "func returns 3, err != nil returns 3",
 			args: args{
-				src: main(`
+				NewConfig(main(`
 				val, lav, err := Foo()
 				if err != nil {
 					return val, lav, err
-				}`),
+				}`)),
 			},
 			want: main(`
 				val, lav, err := Foo()
@@ -42,11 +41,11 @@ func TestDo(t *testing.T) {
 		{
 			name: "func returns 2, err != nil returns 2",
 			args: args{
-				src: main(`
+				NewConfig(main(`
 				val, err := Foo()
 				if err != nil {
 					return val, err
-				}`),
+				}`)),
 			},
 			want: main(`
 				val, err := Foo()
@@ -58,7 +57,7 @@ func TestDo(t *testing.T) {
 		{
 			name: "method and package",
 			args: args{
-				src: `package main
+				NewConfig(`package main
 				import (
 					"fee/fi/fo/fum"
 				)
@@ -72,7 +71,7 @@ func TestDo(t *testing.T) {
 					if err != nil {
 						return val, err
 					}
-				}`,
+				}`),
 			},
 			want: `package main
 				import (
@@ -95,12 +94,12 @@ func TestDo(t *testing.T) {
 		{
 			name: "method",
 			args: args{
-				src: main(`
+				NewConfig(main(`
 				var foo Foo
 				val, err := foo.Foo()
 				if err != nil {
 					return val, err
-				}`),
+				}`)),
 			},
 			want: main(`
 				var foo Foo
@@ -113,11 +112,11 @@ func TestDo(t *testing.T) {
 		{
 			name: "chaos",
 			args: args{
-				src: main(`
+				NewConfig(main(`
 				val := foo.Foo()
 				if err != nil {
 					return err
-				}`),
+				}`)),
 			},
 			want: main(`
 				val := foo.Foo()
@@ -129,11 +128,11 @@ func TestDo(t *testing.T) {
 		{
 			name: "func returns 2, err != nil returns 1",
 			args: args{
-				src: main(`
+				NewConfig(main(`
 				val, err := Foo()
 				if err != nil {
 					return err
-				}`),
+				}`)),
 			},
 			want: main(`
 				val, err := Foo()
@@ -145,13 +144,13 @@ func TestDo(t *testing.T) {
 		{
 			name: "with comments",
 			args: args{
-				src: main(`
+				NewConfig(main(`
 				val, err := Foo() // nice...
 				// is this nil?
 				if err != nil {
 					// return that thang
 					return err // return it here
-				}`),
+				}`)),
 			},
 			want: main(`
 				val, err := Foo() // nice...
@@ -165,7 +164,7 @@ func TestDo(t *testing.T) {
 		{
 			name: "multiple",
 			args: args{
-				src: main(`
+				NewConfig(main(`
 				err := foo.Foo()
 				if err != nil {
 					return err
@@ -173,7 +172,7 @@ func TestDo(t *testing.T) {
 				err = bar()
 				if err != nil {
 					return err
-				}`),
+				}`)),
 			},
 			want: main(`
 				err := foo.Foo()
@@ -189,11 +188,11 @@ func TestDo(t *testing.T) {
 		{
 			name: "func returns 1, err != nil returns 1",
 			args: args{
-				src: main(`
+				NewConfig(main(`
 				err := bar()
 				if err != nil {
 					return err
-				}`),
+				}`)),
 			},
 			want: main(`
 				err := bar()
@@ -205,11 +204,11 @@ func TestDo(t *testing.T) {
 		{
 			name: "nested func calls",
 			args: args{
-				src: main(`
+				NewConfig(main(`
 				err := bar(Foo())
 				if err != nil {
 					return err
-				}`),
+				}`)),
 			},
 			want: main(`
 				err := bar(Foo())
@@ -221,11 +220,11 @@ func TestDo(t *testing.T) {
 		{
 			name: "nested func calls",
 			args: args{
-				src: main(`
+				NewConfig(main(`
 				err := bar(Foo())
 				if err != nil {
 					return err
-				}`),
+				}`)),
 			},
 			want: main(`
 				err := bar(Foo())
@@ -237,7 +236,7 @@ func TestDo(t *testing.T) {
 		{
 			name: "all",
 			args: args{
-				src: `package main
+				NewConfig(`package main
   import (
     "foo"
     "fee/fi/fo"
@@ -265,7 +264,7 @@ func TestDo(t *testing.T) {
     if err != nil {
       return err
     }
-  }`,
+  }`),
 			},
 			want: `package main
   import (
@@ -298,10 +297,42 @@ func TestDo(t *testing.T) {
   }`,
 			wantErr: false,
 		},
+		{
+			name: "contains omit comment",
+			args: args{
+				NewConfig(main(`
+				val, err := Foo()
+				if err != nil {
+					return val, err //noeh
+				}`)),
+			},
+			want: main(`
+				val, err := Foo()
+				if err != nil {
+					return val, err //noeh
+				}`),
+			wantErr: false,
+		},
+		{
+			name: "force overwrite",
+			args: args{
+				NewConfig(main(`
+				val, err := Foo()
+				if err != nil {
+					return val, fmt.Errorf("failed to run Foo: %w", err)
+				}`), WithForce()),
+			},
+			want: main(`
+				val, err := Foo()
+				if err != nil {
+					return val, fmt.Errorf("Foo: %w", err)
+				}`),
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Do(tt.args.config, tt.args.src)
+			got, err := Do(tt.args.config)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Do() error = %v, wantErr %v", err, tt.wantErr)
 				return
