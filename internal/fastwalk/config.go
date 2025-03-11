@@ -3,6 +3,7 @@ package fastwalk
 import (
 	"context"
 	"os"
+	"strings"
 )
 
 type Config struct {
@@ -34,26 +35,23 @@ func NewConfig(workFunc func(ctx context.Context, path string) error, opts ...Op
 }
 
 func WithRootFilepath(path string) Option {
-	return func(cfg *Config) {
-		cfg.rootFilepath = path
-	}
+	return func(cfg *Config) { cfg.rootFilepath = path }
 }
 
 func WithNumWorkers(n int) Option {
-	return func(cfg *Config) {
-		cfg.numWorkers = n
-	}
+	return func(cfg *Config) { cfg.numWorkers = n }
 }
 
-func WithHidden() Option {
-	return func(cfg *Config) {
-		cfg.includeHidden = true
-	}
+func WithIncludeHidden() Option {
+	return func(cfg *Config) { cfg.includeHidden = true }
 }
 
-func WithExtensions(exts []string) Option {
+func WithOnlyExtensions(exts []string) Option {
 	return func(cfg *Config) {
 		for _, ext := range exts {
+			if !strings.HasPrefix(ext, ".") {
+				ext = "." + ext
+			}
 			cfg.onlyExtensions[ext] = struct{}{}
 		}
 	}
