@@ -8,15 +8,7 @@ import (
 	"sync"
 )
 
-type Config struct {
-	RootFilepath   string
-	WorkFunc       func(ctx context.Context, path string) error
-	NumWorkers     int
-	IncludeHidden  bool
-	OnlyExtensions map[string]struct{}
-}
-
-func Walk(ctx context.Context, config Config) error {
+func Walk(ctx context.Context, cfg Config) error {
 	// create a cancelable context to allow early termination if an error occurs
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -42,7 +34,7 @@ func Walk(ctx context.Context, config Config) error {
 					return
 				}
 				// execute the provided work function.
-				if err := config.WorkFunc(ctx, p); err != nil {
+				if err := cfg.workFunc(ctx, p); err != nil {
 					// on error, send the error to errChan and cancel context to stop further work
 					select {
 					case errChan <- err:
@@ -55,7 +47,7 @@ func Walk(ctx context.Context, config Config) error {
 	}
 
 	// start the workers
-	for i := 0; i < config.NumWorkers; i++ {
+	for i := 0; i < cfg.numWorkers; i++ {
 		wg.Add(1)
 		go worker()
 	}
@@ -64,7 +56,7 @@ func Walk(ctx context.Context, config Config) error {
 	go func() {
 		// once done, close the channel to signal no more file paths
 		defer close(pathChan)
-		err := filepath.WalkDir(config.RootFilepath, func(path string, d os.DirEntry, err error) error {
+		err := filepath.WalkDir(cfg.rootFilepath, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				// if there is an error accessing a file or directory, report it
 				select {
@@ -75,7 +67,7 @@ func Walk(ctx context.Context, config Config) error {
 				return nil
 			}
 			// skip hidden files or hidden directories if IncludeHidden is false.
-			if !config.IncludeHidden && strings.HasPrefix(d.Name(), ".") {
+			if !cfg.includeHidden && strings.HasPrefix(d.Name(), ".") {
 				if d.IsDir() {
 					// skip entire directory
 					return filepath.SkipDir
@@ -84,8 +76,8 @@ func Walk(ctx context.Context, config Config) error {
 				return nil
 			}
 			// if OnlyExtensions is set, filter out files without matching extension
-			if len(config.OnlyExtensions) > 0 {
-				if _, ok := config.OnlyExtensions[filepath.Ext(path)]; !ok {
+			if len(cfg.onlyExtensions) > 0 {
+				if _, ok := cfg.onlyExtensions[filepath.Ext(path)]; !ok {
 					return nil
 				}
 			}
