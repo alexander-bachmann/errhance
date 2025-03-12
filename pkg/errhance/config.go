@@ -1,7 +1,8 @@
 package errhance
 
 type Config struct {
-	// errhance `return err` OR `return fmt.Errorf()`
+	// errhance either `return err` or `return fmt.Errorf()`
+	// default behavior is to just errhance `return err`
 	overwrite bool
 	// revert `return fmt.Errorf()` to `return err`
 	revert bool
