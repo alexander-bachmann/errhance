@@ -20,7 +20,11 @@ func main() {
 		return nil
 	}
 
-	err := fastwalk.Walk(fastwalk.NewConfig(errhanceFunc))
+	err := fastwalk.Walk(
+		fastwalk.NewConfig(
+			errhanceFunc,
+			fastwalk.WithOnlyExtensions([]string{".go"}),
+		))
 	if err != nil {
 		panic(err)
 	}
