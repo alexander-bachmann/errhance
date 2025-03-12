@@ -1,6 +1,4 @@
 # TODO
-- run goimports per file
-    - install goimports if missing
 - output given single line (for neovim integration)
   - errhance "client, err := NewClient()"
     - can use `generateWrappedErr()` but need to still check the number of args in the surrounding function, then how will it know the zero values for the other returned values .. func Foo() (int, error) , may be more complex
@@ -22,3 +20,5 @@
 - plug back into cobra cli
   - write file back with whatever rwx permmions they already had
 - walk backwards to verify currently within a go project by checking go.mod
+- run goimports per file
+    - install goimports if missing

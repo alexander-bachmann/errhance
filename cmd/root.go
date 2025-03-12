@@ -65,7 +65,7 @@ func init() {
 	// uncomment to use viper
 	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.errhance.yaml)")
 
-	rootCmd.Flags().BoolP("overwrite", "o", false, "errhances both 'return err' and 'return fmt.Errorf()'")
+	rootCmd.Flags().BoolP("overwrite", "o", false, "errhances both 'return err' and 'return fmt.Errorf()'; useful for when functions are renamed")
 	rootCmd.Flags().BoolP("generated", "g", false, "errhances generated code")
 }
 
