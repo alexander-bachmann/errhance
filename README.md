@@ -1,5 +1,10 @@
 # errhance
 
+view [internal/errhance/errhance_test.go] to see all cases currently supported
+
+- ignores generated files by default
+-
+
 ### Before
 ```go
 func Foo() (int, error) {
@@ -57,7 +62,6 @@ func Get(url string) (string, error) {
 ```
 
 ### Usage
-#### CLI
 ```bash
 go install github.com/alexander-bachmann/errhance@latest
 errhance
@@ -65,10 +69,3 @@ go install golang.org/x/tools/cmd/goimports@latest
 goimports -w .
 ```
 - note: if `errhance` introduced the need for `fmt` in a file, `goimports` will automatically import
-#### /pkg
-```go
-src, err := errhance.Do(errhance.Config{}, src)
-if err != nil {
-    return fmt.Errorf("errhance.Do: %w", err)
-}
-```

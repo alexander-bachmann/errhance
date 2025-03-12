@@ -13,7 +13,8 @@ func File(src string, cfg Config) (string, error) {
 		return src, nil // not an error to encounter a generated file
 	}
 	for {
-		// recompute AST after each replacement
+		// recompute AST after each replacement,
+		// otherwise node positions will be inaccurate
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, "", src, 0)
 		if err != nil {
@@ -46,13 +47,14 @@ func findReplaceNextErr(file *ast.File, src string, cfg Config) (string, bool) {
 		}
 		switch n := node.(type) {
 		case *ast.AssignStmt: // err := foo()
-			newErr = generateWrappedErr(*n) // fmt.Errorf("foo: %w", err)
+			// e.g. fmt.Errorf("foo: %w", err)
+			newErr = generateWrappedErr(*n)
 		case *ast.IfStmt: // if err != nil
 			if containsOmitComment(src[int((*n).Pos())-1 : int((*n).End()-1)]) {
 				return Skip
 			}
 			var ok bool
-			// return err => return fmt.Errorf("foo: %w", err)
+			// e.g. return err => return fmt.Errorf("foo: %w", err)
 			src, ok = replaceWithNewErr(*n, src, newErr, cfg.overwrite)
 			if !ok {
 				break
@@ -60,7 +62,7 @@ func findReplaceNextErr(file *ast.File, src string, cfg Config) (string, bool) {
 			hasReplaced = true
 			return Skip
 		}
-		// don't delete -- this is very helpful
+		// do not remove -- it is very helpful
 		// fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
 		return Next
 	})

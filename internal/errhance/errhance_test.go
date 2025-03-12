@@ -115,7 +115,7 @@ func TestFile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "chaos",
+			name: "returned error is not named err",
 			args: args{
 				src: main(`
 				val := foo.Foo()
