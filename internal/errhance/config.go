@@ -24,6 +24,6 @@ func NewConfig(opts ...Option) Config {
 	return cfg
 }
 
-func WithOverwrite() Option     { return func(cfg *Config) { cfg.overwrite = true } }
-func WithRevert() Option        { return func(cfg *Config) { cfg.revert = true } }
-func WithGeneratedCode() Option { return func(cfg *Config) { cfg.generatedCode = true } }
+func WithOverwrite(b bool) Option     { return func(cfg *Config) { cfg.overwrite = b } }
+func WithRevert(b bool) Option        { return func(cfg *Config) { cfg.revert = b } }
+func WithGeneratedCode(b bool) Option { return func(cfg *Config) { cfg.generatedCode = b } }

@@ -44,8 +44,12 @@ func WithNumWorkers(n int) Option {
 	return func(cfg *Config) { cfg.numWorkers = n }
 }
 
-func WithIncludeHidden() Option {
-	return func(cfg *Config) { cfg.includeHidden = true }
+func WithIncludeHidden(b bool) Option {
+	return func(cfg *Config) { cfg.includeHidden = b }
+}
+
+func WithIncludeDirectories(b bool) Option {
+	return func(cfg *Config) { cfg.includeDirectories = b }
 }
 
 func WithOnlyExtensions(exts []string) Option {

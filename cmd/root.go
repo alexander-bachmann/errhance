@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/alexander-bachmann/errhance/internal/errhance"
+	"github.com/alexander-bachmann/errhance/internal/fastwalk"
 )
 
 var cfgFile string
@@ -16,13 +20,33 @@ var rootCmd = &cobra.Command{
 	Short: "CLI that enhances the returned errors in a Go project by wrapping them with the name of the called function(s).",
 	Long: `CLI that enhances the returned errors in a Go project by wrapping them with the name of the called function(s).
 
+	// support for omitting errhance
+
 TODO: include examples
 TODO: includes usage examples ; keep same as README.md
 `,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return errhanceFiles()
+		overwrite, err := cmd.Flags().GetBool("overwrite")
+		if err != nil {
+			return err
+		}
+		generated, err := cmd.Flags().GetBool("generated")
+		if err != nil {
+			return err
+		}
+		errhanceWork := func(_ context.Context, path string) error {
+			return errhanceFile(path, errhance.NewConfig(
+				errhance.WithOverwrite(overwrite),
+				errhance.WithGeneratedCode(generated),
+				// TODO: add support for revert command
+			))
+		}
+		return errhanceFiles(
+			fastwalk.NewConfig(
+				errhanceWork,
+				fastwalk.WithOnlyExtensions([]string{".go"}),
+				// TODO: add support for remaining fastwalk flags
+			))
 	},
 }
 
@@ -38,14 +62,11 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
+	// uncomment to use viper
+	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.errhance.yaml)")
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.errhance.yaml)")
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.Flags().BoolP("overwrite", "o", false, "errhances both 'return err' and 'return fmt.Errorf()'")
+	rootCmd.Flags().BoolP("generated", "g", false, "errhances generated code")
 }
 
 // initConfig reads in config file and ENV variables if set.

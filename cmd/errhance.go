@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,28 +9,24 @@ import (
 	"github.com/alexander-bachmann/errhance/internal/fastwalk"
 )
 
-func errhanceFiles() error {
+func errhanceFiles(cfg fastwalk.Config) error {
 	valid, err := inGoProject()
 	if err != nil || !valid {
 		return fmt.Errorf("not in Go project: %w", err) //noerrhance
 	}
-	err = fastwalk.Walk(
-		fastwalk.NewConfig(
-			errhanceFile,
-			fastwalk.WithOnlyExtensions([]string{".go"}),
-		))
+	err = fastwalk.Walk(cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("fastwalk.Walk: %w", err)
 	}
 	return nil
 }
 
-func errhanceFile(_ context.Context, path string) error {
+func errhanceFile(path string, cfg errhance.Config) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("os.ReadFile: %w", err)
 	}
-	src, err := errhance.File(string(b), errhance.NewConfig())
+	src, err := errhance.File(string(b), cfg)
 	if err != nil {
 		return fmt.Errorf("errhance.File: %w", err)
 	}
