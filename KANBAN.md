@@ -1,4 +1,5 @@
 # TODO
+- plug back into cobra cli
 - run goimports per file
     - install goimports if missing
 - output given single line (for neovim integration)
