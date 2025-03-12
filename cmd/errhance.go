@@ -21,7 +21,7 @@ func errhanceFiles(cfg fastwalk.Config) error {
 	}
 	err = fastwalk.Walk(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to traverse file system: %w", err) //noeh
+		return fmt.Errorf("failed while walking file system: %w", err) //noeh
 	}
 	return nil
 }
@@ -39,10 +39,6 @@ func errhanceFile(path string, cfg errhance.Config) error {
 	if len(b) == len(src) && string(b) == src {
 		return nil // no changes made
 	}
-	err = runGoimportsOnFile(path)
-	if err != nil {
-		return fmt.Errorf("failed to run goimports on %s: %w", path, err) //noeh
-	}
 	// open the file for writing and truncate
 	// its content without modifying permissions
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
@@ -55,6 +51,10 @@ func errhanceFile(path string, cfg errhance.Config) error {
 	}
 	if err := file.Sync(); err != nil {
 		return fmt.Errorf("file.Sync: %w", err)
+	}
+	err = runGoimportsOnFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to run goimports on %s: %w", path, err) //noeh
 	}
 	return nil
 }
