@@ -1,5 +1,7 @@
 # TODO
 - plug back into cobra cli
+  - write file back with whatever rwx permmions they already had
+- walk backwards to verify currently within a go project by checking go.mod
 - run goimports per file
     - install goimports if missing
 - output given single line (for neovim integration)
