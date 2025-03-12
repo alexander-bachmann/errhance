@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/alexander-bachmann/errhance/internal/errhance"
@@ -13,6 +14,10 @@ func errhanceFiles(cfg fastwalk.Config) error {
 	valid, err := inGoProject()
 	if err != nil || !valid {
 		return fmt.Errorf("not in Go project: %w", err) //noerrhance
+	}
+	err = downloadGoimportsIfMissing()
+	if err != nil {
+		return err
 	}
 	err = fastwalk.Walk(cfg)
 	if err != nil {
@@ -33,6 +38,10 @@ func errhanceFile(path string, cfg errhance.Config) error {
 	// len check first for performance
 	if len(b) == len(src) && string(b) == src {
 		return nil // no changes made
+	}
+	err = runGoimportsOnFile(path)
+	if err != nil {
+		return err
 	}
 	// open the file for writing and truncate
 	// its content without modifying permissions
@@ -73,4 +82,25 @@ func inGoProject() (bool, error) {
 		cwd = parent
 	}
 	return false, nil
+}
+
+func downloadGoimportsIfMissing() error {
+	if _, err := exec.LookPath("goimports"); err == nil {
+		return nil
+	}
+	cmd := exec.Command("go", "install", "golang.org/x/tools/cmd/goimports@latest")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to install goimports: %w. Output: %s", err, output) //noerrhance
+	}
+	return nil
+}
+
+func runGoimportsOnFile(path string) error {
+	cmd := exec.Command("goimports", "-w", path)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("goimports failed on %s: %w. Output: %s", path, err, output) //noerrhance
+	}
+	return nil
 }
