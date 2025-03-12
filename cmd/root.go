@@ -20,10 +20,17 @@ var rootCmd = &cobra.Command{
 	Short: "CLI that enhances the returned errors in a Go project by wrapping them with the name of the called function(s).",
 	Long: `CLI that enhances the returned errors in a Go project by wrapping them with the name of the called function(s).
 
-	// support for omitting errhance
+-- Before --
+err := Foo()
+if err != nil {
+    return err
+}
 
-TODO: include examples
-TODO: includes usage examples ; keep same as README.md
+-- After --
+err := Foo()
+if err != nil {
+    return fmt.Errorf("Foo: %w", err)
+}
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		overwrite, err := cmd.Flags().GetBool("overwrite")
