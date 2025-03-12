@@ -1,10 +1,8 @@
 package errhance
 
 type Config struct {
-	// source code
-	src string
-	// force regenerate `return fmt.Errorf()` regardless of if it the already exists
-	force bool
+	// errhance `return err` OR `return fmt.Errorf()`
+	overwrite bool
 	// revert `return fmt.Errorf()` to `return err`
 	revert bool
 	// errhance generated code
@@ -13,10 +11,9 @@ type Config struct {
 
 type Option func(*Config)
 
-func NewConfig(src string, opts ...Option) Config {
+func NewConfig(opts ...Option) Config {
 	cfg := Config{
-		src:           src,
-		force:         false,
+		overwrite:     false,
 		revert:        false,
 		generatedCode: false,
 	}
@@ -26,6 +23,6 @@ func NewConfig(src string, opts ...Option) Config {
 	return cfg
 }
 
-func WithForce() Option         { return func(cfg *Config) { cfg.force = true } }
+func WithOverwrite() Option     { return func(cfg *Config) { cfg.overwrite = true } }
 func WithRevert() Option        { return func(cfg *Config) { cfg.revert = true } }
 func WithGeneratedCode() Option { return func(cfg *Config) { cfg.generatedCode = true } }

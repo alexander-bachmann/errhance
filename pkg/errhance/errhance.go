@@ -21,21 +21,21 @@ func containsOmitComment(src string) bool {
 	return false
 }
 
-func Do(cfg Config) (string, error) {
+func File(src string, cfg Config) (string, error) {
 	for {
 		// recompute AST after each replacement
 		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, "", cfg.src, 0)
+		file, err := parser.ParseFile(fset, "", src, 0)
 		if err != nil {
-			return cfg.src, fmt.Errorf("parser.ParseFile: %w", err)
+			return src, fmt.Errorf("parser.ParseFile: %w", err)
 		}
 		var ok bool
-		cfg.src, ok = replace(file, cfg.src)
+		src, ok = replace(file, src, cfg)
 		if !ok {
 			break
 		}
 	}
-	return cfg.src, nil
+	return src, nil
 }
 
 const (
@@ -43,7 +43,7 @@ const (
 	Skip = false
 )
 
-func replace(file *ast.File, src string) (string, bool) {
+func replace(file *ast.File, src string, cfg Config) (string, bool) {
 	hasReplaced := false
 	nearestWrappedErr := ""
 
@@ -63,7 +63,7 @@ func replace(file *ast.File, src string) (string, bool) {
 			}
 			var ok bool
 			// return err => return fmt.Errorf("foo: %w", err)
-			src, ok = replaceWithWrappedErr(*n, src, nearestWrappedErr)
+			src, ok = replaceWithWrappedErr(*n, src, nearestWrappedErr, cfg.overwrite)
 			if !ok {
 				break
 			}
@@ -71,7 +71,7 @@ func replace(file *ast.File, src string) (string, bool) {
 			return Skip
 		}
 		// don't delete -- this is very helpful
-		// fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
+		fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
 		return Next
 	})
 	return src, hasReplaced
@@ -150,15 +150,15 @@ func appendDot(name string) string {
 	return name
 }
 
-func replaceWithWrappedErr(ifStmt ast.IfStmt, src, newErr string) (string, bool) {
+func replaceWithWrappedErr(ifStmt ast.IfStmt, src, newErr string, overwrite bool) (string, bool) {
 	if newErr == "" {
 		return src, false
 	}
 	if !isErrNilCheck(ifStmt) {
 		return src, false
 	}
-	pos := returnErrPos(ifStmt)
-	if pos == -1 {
+	pos, len := returnErrPosLen(ifStmt, overwrite)
+	if pos == -1 || len == -1 {
 		return src, false
 	}
 	// if ifStmt has an assignStmt, it means it uses the shorthand err check syntax
@@ -167,7 +167,11 @@ func replaceWithWrappedErr(ifStmt ast.IfStmt, src, newErr string) (string, bool)
 	case *ast.AssignStmt:
 		newErr = generateWrappedErr(*a)
 	}
-	return src[:pos-1] + newErr + src[pos+2:], true
+	// make no changes if current err is what errhance generates
+	if src[pos-1:pos+len-1] == newErr {
+		return src, false
+	}
+	return src[:pos-1] + newErr + src[pos+len-1:], true
 }
 
 func isErrNilCheck(ifStmt ast.IfStmt) bool {
@@ -184,9 +188,11 @@ func isErrNilCheck(ifStmt ast.IfStmt) bool {
 	return true
 }
 
-func returnErrPos(ifStmt ast.IfStmt) int {
+func returnErrPosLen(ifStmt ast.IfStmt, overwrite bool) (int, int) {
+	pos := -1
+	len := -1
 	if ifStmt.Body == nil {
-		return -1
+		return pos, len
 	}
 	for _, stmt := range ifStmt.Body.List {
 		returnStmt, ok := stmt.(*ast.ReturnStmt)
@@ -194,12 +200,35 @@ func returnErrPos(ifStmt ast.IfStmt) int {
 			continue
 		}
 		for _, result := range returnStmt.Results {
-			ident, ok := result.(*ast.Ident)
-			if !ok || ident.Name != "err" {
-				continue
+			switch r := result.(type) {
+			case *ast.Ident:
+				if (*r).Name == "err" {
+					pos = int((*r).Pos())
+					len = 3
+					return pos, len
+				}
+			case *ast.CallExpr:
+				if overwrite && isFmtErrorf(r) {
+					pos = int((*r).Pos())
+					len = int((*r).End() - (*r).Pos())
+					return pos, len
+				}
+				if isFmtErrorf(r) {
+				}
 			}
-			return int(ident.Pos())
 		}
 	}
-	return -1
+	return pos, len
+}
+
+func isFmtErrorf(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkgIdent, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return pkgIdent.Name == "fmt" && sel.Sel.Name == "Errorf"
 }
