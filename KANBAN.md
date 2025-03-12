@@ -1,7 +1,4 @@
 # TODO
-- plug back into cobra cli
-  - write file back with whatever rwx permmions they already had
-- walk backwards to verify currently within a go project by checking go.mod
 - run goimports per file
     - install goimports if missing
 - output given single line (for neovim integration)
@@ -22,3 +19,6 @@
     - want to check separately to support //nosec noeh
 - force option for wiping old `return fmt.Errorfs`
 - ignore generated code (read first 5 lines for generated keyword comments)
+- plug back into cobra cli
+  - write file back with whatever rwx permmions they already had
+- walk backwards to verify currently within a go project by checking go.mod

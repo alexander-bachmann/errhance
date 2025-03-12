@@ -28,11 +28,11 @@ TODO: includes usage examples ; keep same as README.md
 	RunE: func(cmd *cobra.Command, args []string) error {
 		overwrite, err := cmd.Flags().GetBool("overwrite")
 		if err != nil {
-			return err
+			return err //noeh
 		}
 		generated, err := cmd.Flags().GetBool("generated")
 		if err != nil {
-			return err
+			return err //noeh
 		}
 		errhanceWork := func(_ context.Context, path string) error {
 			return errhanceFile(path, errhance.NewConfig(
