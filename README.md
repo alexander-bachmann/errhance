@@ -75,11 +75,11 @@ func Get(url string) (string, error) {
   - e.g.
 ```
 if err != nil {
-  return fmt.Errorf("failed to do it: %w", err) //noeh
+  return fmt.Errorf("some custom error message: %w", err) //noeh
 }
 ```
 
 ## Dependencies
-- `errhance`depends on [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) and will automatically download it if missing.
+- `errhance`depends on [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) and will automatically be downloaded if missing.
   - `errhance` needs `goimports` for importing the `fmt` package when wrapping errors with `fmt.Errorf`.
 
