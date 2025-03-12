@@ -21,7 +21,7 @@ func errhanceFiles() error {
 			fastwalk.WithOnlyExtensions([]string{".go"}),
 		))
 	if err != nil {
-		return fmt.Errorf("fastwalk.Walk: %w", err)
+		return err
 	}
 	return nil
 }
