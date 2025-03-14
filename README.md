@@ -6,23 +6,51 @@ go install github.com/alexander-bachmann/errhance@latest
 errhance
 ```
 
-## What Happens?
-- `errhance` recursively traverses your Go project, enhances returned errors, and writes the changes
-- By default, generated files remain unmodified
-  - generated files can be enhanced with `errhance --generated`
-- By default, `return err` statements are enhanced, `return fmt.Errorf` statements are not
-  - `return fmt.Errorf` statements can also be enhanced with `errhance --overwrite`
-- Specific `if err != nil` blocks are skipped if a comment is detected with any of the following: `noeh`, `no eh`, `noerrhance`, or `no errhance`
-  ```go
-  // ...
-  if err != nil {
+## About
+```
+errhance recursively traverses a Go project, enhances returned errors, and writes the changes. The errors are enhanced by wrapping them with the name of the function that initially returned the error.
+
+-- Before --
+if err := foo.Bar(); err != nil {
+    return err
+}
+-- After --
+if err := foo.Bar(); err != nil {
+    return fmt.Errorf("foo.Bar: %w", err)
+}
+
+Default Behavior:
+- only 'return err' statements are enhanced; to enhance 'return fmt.Errorf' statements, use the flags: --overwrite or --force-overwrite
+    - The --overwrite flag will enhance both 'return err' and safe 'return fmt.Errorf' statements
+    - The --force-overwrite flag will enhance 'return err' , safe 'return fmt.Errorf', and unsafe 'fmt.Errorf' statements
+    - Safe fmt.Errorf example:
+        - return fmt.Errorf("failed: %w", err)
+    - Unsafe fmt.Errorf examples:
+        - return fmt.Errorf("failed: %w", ErrNotFound)    // sentinel error
+        - return fmt.Errorf("failed: %w: %w", errA, errB) // multiple identifiers
+        - return fmt.Errorf("%s: %w", str, err)           // multiple identifiers
+
+- Generated code is not enhanced; to enhance generated code, use the flag: --generated
+
+- Specific 'if err != nil' blocks are skipped if a comment is detected with any of the following: noeh, no eh, noerrhance, or no errhance
+// ...
+if err != nil {
     return err //noerrhance
-  }
-  // ...
-  if err != nil {
+}
+// ...
+if err != nil {
     return fmt.Errorf("custom message: %w", err) // noeh
-  }
-  ```
+}
+
+Usage:
+  errhance [flags]
+
+Flags:
+  -f, --force-overwrite   returns enhanced: err, safe fmt.Errorf, and unsafe fmt.Errorf
+  -g, --generated         enhances returns in generated code
+  -h, --help              help for errhance
+  -o, --overwrite         returns enhanced: err and safe fmt.Errorf
+```
 
 ## Example
 ### Before
@@ -79,11 +107,6 @@ func Get(url string) (string, error) {
   }
   return string(body), nil
 }
-```
-
-## Usage
-```
-errhance --help
 ```
 
 ## Dependencies
