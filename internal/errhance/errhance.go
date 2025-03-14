@@ -212,7 +212,7 @@ func returnErrPositionLength(ifStmt ast.IfStmt, overwrite, forceOverwrite bool) 
 }
 
 func isValidFmtErrorf(call *ast.CallExpr, overwrite bool, forceOverwrite bool) bool {
-	if !overwrite && !forceOverwrite {
+	if !overwrite || !forceOverwrite {
 		return false
 	}
 	sel, ok := call.Fun.(*ast.SelectorExpr)
