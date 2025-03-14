@@ -149,7 +149,7 @@ func replaceWithNewErr(ifStmt ast.IfStmt, src string, newErr string, overwrite, 
 	if !isErrNilCheck(ifStmt) {
 		return src, false
 	}
-	pos, len := returnErrPositionLength(ifStmt, overwrite, forceOverwrite)
+	pos, len := returnErrPositionLength(ifStmt, src, overwrite, forceOverwrite)
 	if pos == -1 || len == -1 {
 		return src, false
 	}
@@ -180,7 +180,7 @@ func isErrNilCheck(ifStmt ast.IfStmt) bool {
 	return true
 }
 
-func returnErrPositionLength(ifStmt ast.IfStmt, overwrite, forceOverwrite bool) (int, int) {
+func returnErrPositionLength(ifStmt ast.IfStmt, src string, overwrite, forceOverwrite bool) (int, int) {
 	pos := -1
 	length := -1 // prefer len but shadows len()
 	if ifStmt.Body == nil {
@@ -200,7 +200,7 @@ func returnErrPositionLength(ifStmt ast.IfStmt, overwrite, forceOverwrite bool) 
 					return pos, length
 				}
 			case *ast.CallExpr: // requires an overwrite flag: return fmt.Errorf
-				if isValidFmtErrorf(n, overwrite, forceOverwrite) {
+				if isValidFmtErrorf(n, src, overwrite, forceOverwrite) {
 					pos = int((*n).Pos())
 					length = int((*n).End() - (*n).Pos())
 					return pos, length
@@ -211,7 +211,7 @@ func returnErrPositionLength(ifStmt ast.IfStmt, overwrite, forceOverwrite bool) 
 	return pos, length
 }
 
-func isValidFmtErrorf(call *ast.CallExpr, overwrite bool, forceOverwrite bool) bool {
+func isValidFmtErrorf(call *ast.CallExpr, src string, overwrite bool, forceOverwrite bool) bool {
 	// skip unless requesting either --overwrite or --force-overwrite
 	if !overwrite && !forceOverwrite {
 		return false
@@ -227,22 +227,18 @@ func isValidFmtErrorf(call *ast.CallExpr, overwrite bool, forceOverwrite bool) b
 	if pkgIdent.Name != "fmt" || sel.Sel.Name != "Errorf" {
 		return false
 	}
-	var idents []string
-	for _, arg := range call.Args {
-		ident, ok := arg.(*ast.Ident)
-		if !ok {
-			continue
-		}
-		idents = append(idents, ident.Name)
-	}
-	// if not forcefully overwriting, don't enhance if there's:
+	// if not forcefully overwriting, check if there is:
 	if !forceOverwrite {
-		// multiple identifiers: fmt.Errorf("failed: %s: %w", str, err)
-		if len(idents) != 1 {
+		var args []string
+		for _, arg := range call.Args {
+			args = append(args, src[arg.Pos()-1:arg.End()-1])
+		}
+		// more than one format argument: fmt.Errorf("failed: %s: %w", str, err)
+		if len(args) > 2 { // 2 because the format string is an arg too
 			return false
 		}
 		// sentinel errors: fmt.Errorf("failed: %w", ErrNotFound)
-		if len(idents) == 1 && idents[0] != "err" {
+		if len(args) == 2 && args[1] != "err" {
 			return false
 		}
 	}
@@ -286,4 +282,8 @@ func isGeneratedFile(src string) bool {
 		}
 	}
 	return false
+}
+
+func printNode(src string, node ast.Node) {
+	fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
 }

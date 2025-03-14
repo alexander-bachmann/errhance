@@ -526,6 +526,23 @@ func TestFile(t *testing.T) {
 				}`),
 			wantErr: false,
 		},
+		{
+			name: "with --overwrite, no change and formatting args are not just a simple identifier expression",
+			args: args{
+				src: main(`
+				val, err := strconv.Atoi(str[0])
+				if err != nil {
+					return 0, 0, 0, fmt.Errorf("%s: %w", str[0], err)
+				}`),
+				config: NewConfig(WithOverwrite(true)),
+			},
+			want: main(`
+				val, err := strconv.Atoi(str[0])
+				if err != nil {
+					return 0, 0, 0, fmt.Errorf("%s: %w", str[0], err)
+				}`),
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
