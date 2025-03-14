@@ -14,8 +14,13 @@ errhance
   - `return fmt.Errorf` statements can be enhanced with `errhance --overwrite`
 - specific `if err != nil` blocks are skipped if a comment is detected with any of the following: `noeh`, `no eh`, `noerrhance`, or `no errhance`
   ```go
+  // ...
   if err != nil {
-    return fmt.Errorf("some custom error message: %w", err) // noeh
+    return err //noerrhance
+  }
+  // ...
+  if err != nil {
+    return fmt.Errorf("custom message: %w", err) // noeh
   }
   ```
 
