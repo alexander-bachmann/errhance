@@ -11,7 +11,7 @@ errhance
 - By default, generated files remain unmodified
   - generated files can be enhanced with `errhance --generated`
 - By default, `return err` statements are enhanced, `return fmt.Errorf` statements are not
-  - `return fmt.Errorf` statements can be included in enhancement with `errhance --overwrite`
+  - `return fmt.Errorf` statements can also be enhanced with `errhance --overwrite`
 - Specific `if err != nil` blocks are skipped if a comment is detected with any of the following: `noeh`, `no eh`, `noerrhance`, or `no errhance`
   ```go
   // ...
