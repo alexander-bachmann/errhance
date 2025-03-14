@@ -1,14 +1,14 @@
 # errhance
 
-## Install and Run
+## Install
 ```
 go install github.com/alexander-bachmann/errhance@latest
-errhance
+errhance --help
 ```
 
-## Usage
+## Run
 ```
-errhance --help
+errhance
 ```
 
 ## Example
