@@ -234,10 +234,17 @@ func isValidFmtErrorf(call *ast.CallExpr, overwrite bool, forceOverwrite bool) b
 		}
 		idents = append(idents, ident.Name)
 	}
-	if len(idents) != 1 {
-		return false
+	// if not forcefully overwriting, don't enhance:
+	if !forceOverwrite {
+		// multiple identifiers: fmt.Errorf("failed: %s: %w", str, err)
+		if len(idents) != 1 {
+			return false
+		}
+		// sentinel errors: fmt.Errorf("failed: %w", ErrNotFound)
+		if len(idents) == 1 && idents[0] != "err" {
+			return false
+		}
 	}
-
 	return true
 }
 
@@ -278,8 +285,4 @@ func isGeneratedFile(src string) bool {
 		}
 	}
 	return false
-}
-
-func printNode(node ast.Node, src string) {
-	fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
 }

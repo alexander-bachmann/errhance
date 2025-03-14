@@ -408,7 +408,24 @@ func TestFile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "custom fmt.Errorf with multiple args, basic overwrite",
+			name: "chained with nested func calls",
+			args: args{
+				src: main(`
+				val, err := Foo().Bar(Baz()).Flop()
+				if err != nil {
+					return val, err
+				}`),
+				config: NewConfig(),
+			},
+			want: main(`
+				val, err := Foo().Bar(Baz()).Flop()
+				if err != nil {
+					return val, fmt.Errorf("Foo.Bar.Flop: %w", err)
+				}`),
+			wantErr: false,
+		},
+		{
+			name: "custom with multiple idents, with --overwrite",
 			args: args{
 				src: main(`
 				val, err := Foo()
@@ -424,21 +441,54 @@ func TestFile(t *testing.T) {
 				}`),
 			wantErr: false,
 		},
-
 		{
-			name: "chained with nested func calls",
+			name: "custom with multiple idents, with --force-overwrite",
 			args: args{
 				src: main(`
-				val, err := Foo().Bar(Baz()).Flop()
+				val, err := Foo()
 				if err != nil {
-					return val, err
+					return val, fmt.Errorf("failed: %s: %w", val, err)
 				}`),
-				config: NewConfig(),
+				config: NewConfig(WithForceOverwrite(true)),
 			},
 			want: main(`
-				val, err := Foo().Bar(Baz()).Flop()
+				val, err := Foo()
 				if err != nil {
-					return val, fmt.Errorf("Foo.Bar.Flop: %w", err)
+					return val, fmt.Errorf("Foo: %w", err)
+				}`),
+			wantErr: false,
+		},
+		{
+			name: "custom with sentinel err, with --overwrite",
+			args: args{
+				src: main(`
+				val, err := Foo()
+				if err != nil {
+					return val, fmt.Errorf("failed: %w", ErrNotFound)
+				}`),
+				config: NewConfig(WithOverwrite(true)),
+			},
+			want: main(`
+				val, err := Foo()
+				if err != nil {
+					return val, fmt.Errorf("failed: %w", ErrNotFound)
+				}`),
+			wantErr: false,
+		},
+		{
+			name: "custom with sentinel err, with --force-overwrite",
+			args: args{
+				src: main(`
+				val, err := Foo()
+				if err != nil {
+					return val, fmt.Errorf("failed: %w", ErrNotFound)
+				}`),
+				config: NewConfig(WithForceOverwrite(true)),
+			},
+			want: main(`
+				val, err := Foo()
+				if err != nil {
+					return val, fmt.Errorf("Foo: %w", err)
 				}`),
 			wantErr: false,
 		},
