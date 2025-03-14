@@ -8,13 +8,16 @@ errhance
 
 ## What Happens?
 - `errhance` recursively traverses your Go project, enhances returned errors, and writes the changes
-- Generated files remain unmodified unless you run `errhance --generated`
-- Only `return err` statements are modified unless you use `errhance --overwrite`
-- To skip specific `if err != nil` blocks, add a comment with any of the following: `noeh`, `no eh`, `noerrhance`, or `no errhance`
+- By default, generated files remain unmodified
+  - generated files can be enhanced with `errhance --generated`
+- By default, `return err` statements are enhanced, `return fmt.Errorf` statements are not
+  - `return fmt.Errorf` statements can be enhanced with `errhance --overwrite`
+- specific `if err != nil` blocks are skipped if a comment is detected with any of the following: `noeh`, `no eh`, `noerrhance`, or `no errhance`
   ```go
   if err != nil {
     return fmt.Errorf("some custom error message: %w", err) // noeh
   }
+  ```
 
 ## Example
 ### Before
