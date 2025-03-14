@@ -212,7 +212,8 @@ func returnErrPositionLength(ifStmt ast.IfStmt, overwrite, forceOverwrite bool) 
 }
 
 func isValidFmtErrorf(call *ast.CallExpr, overwrite bool, forceOverwrite bool) bool {
-	if !overwrite || !forceOverwrite {
+	// skip unless requesting either --overwrite or --force-overwrite
+	if !overwrite && !forceOverwrite {
 		return false
 	}
 	sel, ok := call.Fun.(*ast.SelectorExpr)
@@ -234,7 +235,7 @@ func isValidFmtErrorf(call *ast.CallExpr, overwrite bool, forceOverwrite bool) b
 		}
 		idents = append(idents, ident.Name)
 	}
-	// if not forcefully overwriting, don't enhance:
+	// if not forcefully overwriting, don't enhance if there's:
 	if !forceOverwrite {
 		// multiple identifiers: fmt.Errorf("failed: %s: %w", str, err)
 		if len(idents) != 1 {

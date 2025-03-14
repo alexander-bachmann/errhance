@@ -425,14 +425,14 @@ func TestFile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "custom with multiple idents, with --overwrite",
+			name: "default, no change to fmt.Errorf with multiple idents",
 			args: args{
 				src: main(`
 				val, err := Foo()
 				if err != nil {
 					return val, fmt.Errorf("failed: %s: %w", val, err)
 				}`),
-				config: NewConfig(WithOverwrite(true)),
+				config: NewConfig(),
 			},
 			want: main(`
 				val, err := Foo()
@@ -442,31 +442,48 @@ func TestFile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "custom with multiple idents, with --force-overwrite",
+			name: "with --overwrite, no change to fmt.Errorf with multiple idents",
 			args: args{
 				src: main(`
 				val, err := Foo()
 				if err != nil {
-					return val, fmt.Errorf("failed: %s: %w", val, err)
+					return val, 0, 0, fmt.Errorf("failed: %s: %w", val, err)
+				}`),
+				config: NewConfig(WithOverwrite(true)),
+			},
+			want: main(`
+				val, err := Foo()
+				if err != nil {
+					return val, 0, 0, fmt.Errorf("failed: %s: %w", val, err)
+				}`),
+			wantErr: false,
+		},
+		{
+			name: "with --force-overwrite, change to fmt.Errorf with multiple idents",
+			args: args{
+				src: main(`
+				val, err := Foo()
+				if err != nil {
+					return val, 0, 0, fmt.Errorf("failed: %s: %w", val, err)
 				}`),
 				config: NewConfig(WithForceOverwrite(true)),
 			},
 			want: main(`
 				val, err := Foo()
 				if err != nil {
-					return val, fmt.Errorf("Foo: %w", err)
+					return val, 0, 0, fmt.Errorf("Foo: %w", err)
 				}`),
 			wantErr: false,
 		},
 		{
-			name: "custom with sentinel err, with --overwrite",
+			name: "default, no change to fmt.Errorf with sentinel err",
 			args: args{
 				src: main(`
 				val, err := Foo()
 				if err != nil {
 					return val, fmt.Errorf("failed: %w", ErrNotFound)
 				}`),
-				config: NewConfig(WithOverwrite(true)),
+				config: NewConfig(),
 			},
 			want: main(`
 				val, err := Foo()
@@ -476,7 +493,24 @@ func TestFile(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "custom with sentinel err, with --force-overwrite",
+			name: "with --overwrite, no change to fmt.Errorf with sentinel err",
+			args: args{
+				src: main(`
+				val, err := Foo()
+				if err != nil {
+					return val, 0, fmt.Errorf("failed: %w", ErrNotFound)
+				}`),
+				config: NewConfig(WithOverwrite(true)),
+			},
+			want: main(`
+				val, err := Foo()
+				if err != nil {
+					return val, 0, fmt.Errorf("failed: %w", ErrNotFound)
+				}`),
+			wantErr: false,
+		},
+		{
+			name: "with --force-overwrite, change to fmt.Errorf with sentinel err",
 			args: args{
 				src: main(`
 				val, err := Foo()
