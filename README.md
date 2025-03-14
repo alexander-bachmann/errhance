@@ -6,10 +6,15 @@ go install github.com/alexander-bachmann/errhance@latest
 errhance
 ```
 
-## Usage
-```
-errhance --help
-```
+## What Happens?
+- `errhance` recursively traverses your Go project, enhances returned errors, and writes the changes
+- Generated files remain unmodified unless you run `errhance --generated`
+- Only `return err` statements are modified unless you use `errhance --overwrite`
+- To skip specific `if err != nil` blocks, add a comment with any of the following: `noeh`, `no eh`, `noerrhance`, or `no errhance`
+  ```go
+  if err != nil {
+    return fmt.Errorf("some custom error message: %w", err) // noeh
+  }
 
 ## Example
 ### Before
@@ -68,18 +73,12 @@ func Get(url string) (string, error) {
 }
 ```
 
-## Default Behavior
-- generated files are not modified
-- only instances of `return err` are modified
-- `if err != nil` blocks can be skipped by adding a comment with any of the following options: `noeh`, `no eh`, `noerrhance`, `no errhance`
-  - e.g.
+## Usage
 ```
-if err != nil {
-  return fmt.Errorf("some custom error message: %w", err) //noeh
-}
+errhance --help
 ```
 
 ## Dependencies
 - `errhance`depends on [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) and will automatically be downloaded if missing.
-  - `errhance` needs `goimports` for importing the `fmt` package when wrapping errors with `fmt.Errorf`.
+  - `errhance` requires `goimports` to import the `fmt` package when wrapping errors with `fmt.Errorf`
 
