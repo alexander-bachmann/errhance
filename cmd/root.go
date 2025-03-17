@@ -16,7 +16,7 @@ var cfgFile string
 
 var rootCmd = &cobra.Command{
 	Use:   "errhance",
-	Short: "CLI that enhances the returned errors in a Go project by wrapping them with the name of the called function(s).",
+	Short: "errhance recursively traverses a Go project, enhances returned errors, and writes the changes. The errors are enhanced by wrapping them with the name of the function that initially returned the error.",
 	Long: `errhance recursively traverses a Go project, enhances returned errors, and writes the changes. The errors are enhanced by wrapping them with the name of the function that initially returned the error.
 
 -- Before --
@@ -27,30 +27,7 @@ if err := foo.Bar(); err != nil {
 if err := foo.Bar(); err != nil {
     return fmt.Errorf("foo.Bar: %w", err)
 }
-
-Default Behavior:
-- only 'return err' statements are enhanced; to enhance 'return fmt.Errorf' statements, use the flags: --overwrite or --force-overwrite
-    - The --overwrite flag will enhance both 'return err' and safe 'return fmt.Errorf' statements
-    - The --force-overwrite flag will enhance 'return err' , safe 'return fmt.Errorf', and unsafe 'fmt.Errorf' statements
-    - Safe fmt.Errorf example:
-        - return fmt.Errorf("failed: %w", err)
-    - Unsafe fmt.Errorf examples:
-        - return fmt.Errorf("failed: %w", ErrNotFound)    // sentinel error
-        - return fmt.Errorf("failed: %w: %w", errA, errB) // multiple identifiers
-        - return fmt.Errorf("%s: %w", str, err)           // multiple identifiers
-
-- Generated code is not enhanced; to enhance generated code, use the flag: --generated
-
-- Specific 'if err != nil' blocks are skipped if a comment is detected with any of the following: noeh, no eh, noerrhance, or no errhance
-// ...
-if err != nil {
-    return err //noerrhance
-}
-// ...
-if err != nil {
-    return fmt.Errorf("custom message: %w", err) // noeh
-}
-	`,
+`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		overwrite, err := cmd.Flags().GetBool("overwrite")
 		if err != nil {
