@@ -57,11 +57,11 @@ func Get(url string) (string, error) {
     - `--overwrite` will enhance both `return err` and `return fmt.Errorf` statements that have been deemed **safe** to enhance.
     - `--force-overwrite` will enhance `return err` , **safe** `return fmt.Errorf`, and **unsafe** `return fmt.Errorf` statements.
     - Examples:
-      - Safe: can be enhanced with `errhance --overwrite`
+      - Safe: will be enhanced with `errhance --overwrite`
         ```go
         return fmt.Errorf("failed: %w", err)
         ```
-      - Unsafe: can be enhanced with `errhance --force-overwrite`
+      - Unsafe: will be enhanced with `errhance --force-overwrite`
         ```go
         return fmt.Errorf("failed: %w", ErrNotFound)    // sentinel error
         return fmt.Errorf("failed: %w: %w", errA, errB) // multiple format arguments
