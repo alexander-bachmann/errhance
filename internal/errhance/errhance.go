@@ -8,9 +8,11 @@ import (
 	"strings"
 )
 
-func File(src string, cfg Config) (string, error) {
+func File(src string, cfg Config) (string, int, error) {
+	var numErrsEnhanced int
 	if !cfg.generated && isGeneratedFile(src) {
-		return src, nil // not an error to encounter a generated file
+		// it is not an error to encounter a generated file
+		return src, numErrsEnhanced, nil
 	}
 	for {
 		// recompute AST after each replacement,
@@ -18,15 +20,18 @@ func File(src string, cfg Config) (string, error) {
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, "", src, 0)
 		if err != nil {
-			return src, fmt.Errorf("parser.ParseFile: %w", err)
+			return src, numErrsEnhanced, fmt.Errorf("parser.ParseFile: %w", err)
 		}
-		var ok bool
-		src, ok = findReplaceNextErr(file, src, cfg)
-		if !ok {
+		var hasErrEnhanced bool
+		src, hasErrEnhanced = findAndEnhanceNextErr(file, src, cfg)
+		if !hasErrEnhanced {
+			// if no error was enhanced, break because the file is complete
 			break
+		} else {
+			numErrsEnhanced++
 		}
 	}
-	return src, nil
+	return src, numErrsEnhanced, nil
 }
 
 const (
@@ -34,12 +39,13 @@ const (
 	Skip = false
 )
 
-func findReplaceNextErr(file *ast.File, src string, cfg Config) (string, bool) {
-	hasReplaced := false
+func findAndEnhanceNextErr(file *ast.File, src string, cfg Config) (string, bool) {
+	hasErrEnhanced := false
 	newErr := ""
 
 	ast.Inspect(file, func(node ast.Node) bool {
-		if hasReplaced {
+		// exit early after a single replacement to recalculate the positions
+		if hasErrEnhanced {
 			return Skip
 		}
 		if node == nil {
@@ -58,14 +64,14 @@ func findReplaceNextErr(file *ast.File, src string, cfg Config) (string, bool) {
 			if !ok {
 				break
 			}
-			hasReplaced = true
+			hasErrEnhanced = true
 			return Skip
 		}
 		// do not remove -- it is very helpful
 		// fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
 		return Next
 	})
-	return src, hasReplaced
+	return src, hasErrEnhanced
 }
 
 func generateWrappedErr(assignStmt ast.AssignStmt) string {
@@ -234,7 +240,7 @@ func isValidFmtErrorf(call *ast.CallExpr, src string, overwrite bool, forceOverw
 			args = append(args, src[arg.Pos()-1:arg.End()-1])
 		}
 		// more than one format argument: fmt.Errorf("failed: %s: %w", str, err)
-		if len(args) > 2 { // 2 because the format string is an arg too
+		if len(args) > 2 { // > 2 because the format string is an arg too
 			return false
 		}
 		// sentinel errors: fmt.Errorf("failed: %w", ErrNotFound)
