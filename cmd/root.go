@@ -66,13 +66,22 @@ if err := foo.Bar(); err != nil {
 				// TODO: add support for changing the remaining fastwalk opts as args
 			))
 		if err != nil {
-			return err //noeh
+			return err
 		}
-
-		cmd.Printf("%d files modified, %d errors enhanced",
+		files := "files"
+		errs := "errors"
+		if totalFilesModified.Load() == 1 {
+			files = "file"
+		}
+		if totalErrorsEnhanced.Load() == 1 {
+			errs = "error"
+		}
+		cmd.Printf("%d %s modified, %d %s enhanced",
 			totalFilesModified.Load(),
-			totalErrorsEnhanced.Load())
-
+			files,
+			totalErrorsEnhanced.Load(),
+			errs,
+		)
 		return nil
 	},
 }
