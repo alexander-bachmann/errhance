@@ -16,7 +16,6 @@ errhance
 ### Example
 ```bash
 % errhance
-
 52 files modified, 201 errors enhanced
 ```
 
