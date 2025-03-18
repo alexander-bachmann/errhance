@@ -26,37 +26,37 @@ func errhanceFiles(cfg fastwalk.Config) error {
 	return nil
 }
 
-func errhanceFile(path string, cfg errhance.Config) error {
-	b, err := os.ReadFile(path)
+func errhanceFile(path string, cfg errhance.Config) (int, error) {
+	before, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("os.ReadFile: %w", err)
+		return 0, fmt.Errorf("os.ReadFile: %w", err)
 	}
-	src, err := errhance.File(string(b), cfg)
+	after, numErrsEnhanced, err := errhance.File(string(before), cfg)
 	if err != nil {
-		return fmt.Errorf("errhance.File: %w", err)
+		return numErrsEnhanced, fmt.Errorf("errhance.File: %w", err)
 	}
 	// len check first for performance
-	if len(b) == len(src) && string(b) == src {
-		return nil // no changes made
+	if len(before) == len(after) && string(before) == after {
+		return numErrsEnhanced, nil // no changes made
 	}
 	// open the file for writing and truncate
 	// its content without modifying permissions
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
 	if err != nil {
-		return fmt.Errorf("os.OpenFile: %w", err)
+		return numErrsEnhanced, fmt.Errorf("os.OpenFile: %w", err)
 	}
 	defer file.Close()
-	if _, err := file.Write([]byte(src)); err != nil {
-		return fmt.Errorf("file.Write: %w", err)
+	if _, err := file.Write([]byte(after)); err != nil {
+		return numErrsEnhanced, fmt.Errorf("file.Write: %w", err)
 	}
 	if err := file.Sync(); err != nil {
-		return fmt.Errorf("file.Sync: %w", err)
+		return numErrsEnhanced, fmt.Errorf("file.Sync: %w", err)
 	}
 	err = runGoimportsOnFile(path)
 	if err != nil {
-		return fmt.Errorf("failed to run goimports on %s: %w", path, err) //noeh
+		return numErrsEnhanced, fmt.Errorf("failed to run goimports on %s: %w", path, err) //noeh
 	}
-	return nil
+	return numErrsEnhanced, nil
 }
 
 func inGoProject() (bool, error) {

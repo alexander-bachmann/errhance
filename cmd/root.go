@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync/atomic"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -41,19 +42,38 @@ if err := foo.Bar(); err != nil {
 		if err != nil {
 			return err //noeh
 		}
+
+		var totalFilesModified atomic.Int64
+		var totalErrorsEnhanced atomic.Int64
+		//  closure for counting and for satisfying
+		// the workFunc signature in fastwalk.Config
 		errhanceFileWithArgs := func(_ context.Context, path string) error {
-			return errhanceFile(path, errhance.NewConfig(
+			fileErrsEnhanced, err := errhanceFile(path, errhance.NewConfig(
 				errhance.WithOverwrite(overwrite),
 				errhance.WithForceOverwrite(forceOverwrite),
 				errhance.WithGenerated(generated),
 			))
+			if fileErrsEnhanced > 0 {
+				totalFilesModified.Add(1)
+			}
+			totalErrorsEnhanced.Add(int64(fileErrsEnhanced))
+			return err //noeh
 		}
-		return errhanceFiles(
+		err = errhanceFiles(
 			fastwalk.NewConfig(
 				errhanceFileWithArgs,
 				fastwalk.WithOnlyExtensions([]string{".go"}),
 				// TODO: add support for changing the remaining fastwalk opts as args
 			))
+		if err != nil {
+			return err //noeh
+		}
+
+		cmd.Printf("%d files modified, %d errors enhanced",
+			totalFilesModified.Load(),
+			totalErrorsEnhanced.Load())
+
+		return nil
 	},
 }
 
