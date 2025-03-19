@@ -42,7 +42,10 @@ if err := foo.Bar(); err != nil {
 		if err != nil {
 			return err //noeh
 		}
-
+		filepaths, err := cmd.Flags().GetStringSlice("filepaths")
+		if err != nil {
+			return err //noeh
+		}
 		var totalFilesModified atomic.Int64
 		var totalErrorsEnhanced atomic.Int64
 		//  closure for counting and for satisfying
@@ -63,6 +66,7 @@ if err := foo.Bar(); err != nil {
 			fastwalk.NewConfig(
 				errhanceFileWithArgs,
 				fastwalk.WithOnlyExtensions([]string{".go"}),
+				fastwalk.WithOnlyFilepaths(filepaths),
 				// TODO: add support for changing the remaining fastwalk opts as args
 			))
 		if err != nil {
@@ -102,6 +106,7 @@ func init() {
 	rootCmd.Flags().BoolP("overwrite", "o", false, "returns enhanced: err and safe fmt.Errorf")
 	rootCmd.Flags().BoolP("force-overwrite", "f", false, "returns enhanced: err, safe fmt.Errorf, and unsafe fmt.Errorf")
 	rootCmd.Flags().BoolP("generated", "g", false, "enhances returns in generated code")
+	rootCmd.Flags().StringSlice("filepaths", []string{}, "enhances specific filepaths")
 }
 
 func initConfig() {

@@ -87,6 +87,12 @@ func WalkContext(ctx context.Context, cfg Config) error {
 					return nil
 				}
 			}
+			// if onlyFilepaths is set, only include specified filepaths
+			if len(cfg.onlyFilepaths) > 0 {
+				if _, ok := cfg.onlyFilepaths[path]; !ok {
+					return nil
+				}
+			}
 			// send the file path to the worker pool
 			select {
 			case pathChan <- path:
