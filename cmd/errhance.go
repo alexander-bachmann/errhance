@@ -13,15 +13,15 @@ import (
 func errhanceFiles(cfg fastwalk.Config) error {
 	valid, err := inGoProject()
 	if err != nil || !valid {
-		return fmt.Errorf("not currently in Go project: %w", err) //noeh
+		return fmt.Errorf("not currently in Go project: %w", err) // noeh
 	}
 	err = downloadGoimportsIfMissing()
 	if err != nil {
-		return fmt.Errorf("failed to download goimports: %w", err) //noeh
+		return fmt.Errorf("failed to download goimports: %w", err) // noeh
 	}
 	err = fastwalk.Walk(cfg)
 	if err != nil {
-		return fmt.Errorf("failed while walking file system: %w", err) //noeh
+		return fmt.Errorf("failed while walking file system: %w", err) // noeh
 	}
 	return nil
 }
@@ -54,7 +54,7 @@ func errhanceFile(path string, cfg errhance.Config) (int, error) {
 	}
 	err = runGoimportsOnFile(path)
 	if err != nil {
-		return numErrsEnhanced, fmt.Errorf("failed to run goimports on %s: %w", path, err) //noeh
+		return numErrsEnhanced, fmt.Errorf("failed to run goimports on %s: %w", path, err) // noeh
 	}
 	return numErrsEnhanced, nil
 }
@@ -70,7 +70,7 @@ func inGoProject() (bool, error) {
 			if os.IsNotExist(err) {
 				// go.mod not found, check the parent directory.
 			} else {
-				return false, fmt.Errorf("os.Stat: %s: %w", goModPath, err) //noerrhance
+				return false, fmt.Errorf("os.Stat: %s: %w", goModPath, err) // noerrhance
 			}
 		} else {
 			return true, nil
@@ -91,7 +91,7 @@ func downloadGoimportsIfMissing() error {
 	cmd := exec.Command("go", "install", "golang.org/x/tools/cmd/goimports@latest")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%w %s", err, output) //noeh
+		return fmt.Errorf("%w %s", err, output) // noeh
 	}
 	return nil
 }
@@ -100,7 +100,7 @@ func runGoimportsOnFile(path string) error {
 	cmd := exec.Command("goimports", "-w", path)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%w %s", err, output) //noeh
+		return fmt.Errorf("%w %s", err, output) // noeh
 	}
 	return nil
 }

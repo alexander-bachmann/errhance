@@ -290,6 +290,6 @@ func isGeneratedFile(src string) bool {
 	return false
 }
 
-func printNode(src string, node ast.Node) {
-	fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
-}
+// func printNode(src string, node ast.Node) {
+// 	fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
+// }

@@ -32,19 +32,19 @@ if err := foo.Bar(); err != nil {
 	RunE: func(cmd *cobra.Command, args []string) error {
 		overwrite, err := cmd.Flags().GetBool("overwrite")
 		if err != nil {
-			return err //noeh
+			return err // noeh
 		}
 		forceOverwrite, err := cmd.Flags().GetBool("force-overwrite")
 		if err != nil {
-			return err //noeh
+			return err // noeh
 		}
 		generated, err := cmd.Flags().GetBool("generated")
 		if err != nil {
-			return err //noeh
+			return err // noeh
 		}
 		filepaths, err := cmd.Flags().GetStringSlice("filepaths")
 		if err != nil {
-			return err //noeh
+			return err // noeh
 		}
 		var totalFilesModified atomic.Int64
 		var totalErrorsEnhanced atomic.Int64
@@ -60,7 +60,7 @@ if err := foo.Bar(); err != nil {
 				totalFilesModified.Add(1)
 			}
 			totalErrorsEnhanced.Add(int64(fileErrsEnhanced))
-			return err //noeh
+			return err // noeh
 		}
 		err = errhanceFiles(
 			fastwalk.NewConfig(
@@ -70,7 +70,7 @@ if err := foo.Bar(); err != nil {
 				// TODO: add support for changing the remaining fastwalk opts as args
 			))
 		if err != nil {
-			return err
+			return err // noeh
 		}
 		files := "files"
 		errs := "errors"
