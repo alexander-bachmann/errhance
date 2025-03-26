@@ -155,8 +155,8 @@ func replaceWithNewErr(ifStmt ast.IfStmt, src string, newErr string, overwrite, 
 	if !isErrNilCheck(ifStmt) {
 		return src, false
 	}
-	pos, len := returnErrPositionLength(ifStmt, src, overwrite, forceOverwrite)
-	if pos == -1 || len == -1 {
+	pos, length := returnErrPositionLength(ifStmt, src, overwrite, forceOverwrite)
+	if pos == -1 || length == -1 {
 		return src, false
 	}
 	// if ifStmt has an assignStmt, it means it uses the shorthand err check syntax
@@ -166,10 +166,10 @@ func replaceWithNewErr(ifStmt ast.IfStmt, src string, newErr string, overwrite, 
 		newErr = generateWrappedErr(*a)
 	}
 	// make no changes if current err is what errhance generates
-	if src[pos-1:pos+len-1] == newErr {
+	if src[pos-1:pos+length-1] == newErr {
 		return src, false
 	}
-	return src[:pos-1] + newErr + src[pos+len-1:], true
+	return src[:pos-1] + newErr + src[pos+length-1:], true
 }
 
 func isErrNilCheck(ifStmt ast.IfStmt) bool {
@@ -188,7 +188,7 @@ func isErrNilCheck(ifStmt ast.IfStmt) bool {
 
 func returnErrPositionLength(ifStmt ast.IfStmt, src string, overwrite, forceOverwrite bool) (int, int) {
 	pos := -1
-	length := -1 // prefer len but shadows len()
+	length := -1
 	if ifStmt.Body == nil {
 		return pos, length
 	}

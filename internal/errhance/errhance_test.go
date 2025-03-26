@@ -551,6 +551,83 @@ func TestFile(t *testing.T) {
 			numErrsEnhanced: 0,
 			wantErr:         false,
 		},
+		{
+			name: "error channel syntax unsupported (for now)",
+			args: args{
+				src: main(`
+				if err = <-errCh; err != nil {
+					return nil, err
+				}`),
+				config: NewConfig(),
+			},
+			after: main(`
+				if err = <-errCh; err != nil {
+					return nil, err
+				}`),
+			numErrsEnhanced: 0,
+			wantErr:         false,
+		},
+		{
+			name: "weird",
+			args: args{
+				src: main(`
+				err = a().b().c().d()
+				if err != nil {
+					return nil, err
+				}
+				if foo := uint32(bar - baz); foo> 0 {
+					if err := f.aoeu.snth.Read(1, foo); err != nil {
+						err = something(true, err, "bleep", err)
+						return nil, err
+					}
+				}
+				val, lav, err := Foo()
+				if err != nil {
+					return nil, err
+				}`),
+				config: NewConfig(),
+			},
+			after: main(`
+				err = a().b().c().d()
+				if err != nil {
+					return nil, fmt.Errorf("a.b.c.d: %w", err)
+				}
+				if foo := uint32(bar - baz); foo> 0 {
+					if err := f.aoeu.snth.Read(1, foo); err != nil {
+						err = something(true, err, "bleep", err)
+						return nil, err
+					}
+				}
+				val, lav, err := Foo()
+				if err != nil {
+					return nil, fmt.Errorf("Foo: %w", err)
+				}`),
+			numErrsEnhanced: 2,
+			wantErr:         false,
+		},
+		{
+			name: "one method shorthand followed by error channel shorthand",
+			args: args{
+				src: main(`
+					if err := r.Flush(); err != nil {
+						return nil, err
+					}
+					if err = <-errCh; err != nil {
+						return nil, err
+					}`),
+				config: NewConfig(),
+			},
+			after: main(`
+					if err := r.Flush(); err != nil {
+						return nil, fmt.Errorf("r.Flush: %w", err)
+					}
+					if err = <-errCh; err != nil {
+						return nil, err
+					}`),
+			numErrsEnhanced: 1,
+			wantErr:         false,
+		},
+
 		// 	{
 		// 		name: "one shorthand syntax statement #1",
 		// 		args: args{
