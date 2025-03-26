@@ -33,7 +33,7 @@ func errhanceFile(path string, cfg errhance.Config) (int, error) {
 	}
 	after, numErrsEnhanced, err := errhance.File(string(before), cfg)
 	if err != nil {
-		return numErrsEnhanced, fmt.Errorf("errhance.File: %w", err)
+		return numErrsEnhanced, fmt.Errorf("%s: %w", path, err)
 	}
 	// len check first for performance
 	if len(before) == len(after) && string(before) == after {

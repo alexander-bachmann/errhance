@@ -68,6 +68,12 @@ func WalkContext(ctx context.Context, cfg Config) error {
 				}
 				return nil
 			}
+			// skip entire directories if provided
+			if len(cfg.skipDirectories) > 0 {
+				if _, ok := cfg.skipDirectories[d.Name()]; ok {
+					return filepath.SkipDir
+				}
+			}
 			// skip hidden files or hidden directories if includeHidden is false.
 			if !cfg.includeHidden && strings.HasPrefix(d.Name(), ".") {
 				if d.IsDir() {

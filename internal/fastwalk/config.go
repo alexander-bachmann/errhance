@@ -14,6 +14,7 @@ type Config struct {
 	includeDirectories bool
 	onlyExtensions     map[string]struct{}
 	onlyFilepaths      map[string]struct{}
+	skipDirectories    map[string]struct{}
 }
 
 type Option func(*Config)
@@ -31,6 +32,7 @@ func NewConfig(workFunc func(ctx context.Context, path string) error, opts ...Op
 		includeDirectories: false,
 		onlyExtensions:     make(map[string]struct{}),
 		onlyFilepaths:      make(map[string]struct{}),
+		skipDirectories:    make(map[string]struct{}),
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -69,6 +71,14 @@ func WithOnlyFilepaths(paths []string) Option {
 	return func(cfg *Config) {
 		for _, path := range paths {
 			cfg.onlyFilepaths[path] = struct{}{}
+		}
+	}
+}
+
+func WithSkipDirectories(dirs []string) Option {
+	return func(cfg *Config) {
+		for _, dir := range dirs {
+			cfg.skipDirectories[dir] = struct{}{}
 		}
 	}
 }

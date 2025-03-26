@@ -66,6 +66,7 @@ if err := foo.Bar(); err != nil {
 			fastwalk.NewConfig(
 				errhanceFileWithArgs,
 				fastwalk.WithOnlyExtensions([]string{".go"}),
+				fastwalk.WithSkipDirectories([]string{"vendor"}),
 				fastwalk.WithOnlyFilepaths(filepaths),
 				// TODO: add support for changing the remaining fastwalk opts as args
 			))
@@ -80,7 +81,7 @@ if err := foo.Bar(); err != nil {
 		if totalErrorsEnhanced.Load() == 1 {
 			errs = "error"
 		}
-		cmd.Printf("%d %s modified, %d %s enhanced",
+		cmd.Printf("%d %s modified, %d %s enhanced\n",
 			totalFilesModified.Load(),
 			files,
 			totalErrorsEnhanced.Load(),

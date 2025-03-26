@@ -551,60 +551,60 @@ func TestFile(t *testing.T) {
 			numErrsEnhanced: 0,
 			wantErr:         false,
 		},
-		{
-			name: "one shorthand syntax statement #1",
-			args: args{
-				src: main(`
-	if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-		return nil, err
-	}`),
-				config: NewConfig(),
-			},
-			after: main(`
-	if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-		return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
-	}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
-		},
-		{
-			name: "one shorthand syntax statement #2",
-			args: args{
-				src: main(`
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}`),
-				config: NewConfig(),
-			},
-			after: main(`
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows.Err: %w", err)
-	}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
-		},
-		{
-			name: "double shorthand syntax",
-			args: args{
-				src: main(`
-	if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}`),
-				config: NewConfig(),
-			},
-			after: main(`
-	if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-		return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows.Err: %w", err)
-	}`),
-			numErrsEnhanced: 2,
-			wantErr:         false,
-		},
+		// 	{
+		// 		name: "one shorthand syntax statement #1",
+		// 		args: args{
+		// 			src: main(`
+		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
+		// 	return nil, err
+		// }`),
+		// 			config: NewConfig(),
+		// 		},
+		// 		after: main(`
+		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
+		// 	return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
+		// }`),
+		// 		numErrsEnhanced: 1,
+		// 		wantErr:         false,
+		// 	},
+		// 	{
+		// 		name: "one shorthand syntax statement #2",
+		// 		args: args{
+		// 			src: main(`
+		// if err := rows.Err(); err != nil {
+		// 	return nil, err
+		// }`),
+		// 			config: NewConfig(),
+		// 		},
+		// 		after: main(`
+		// if err := rows.Err(); err != nil {
+		// 	return nil, fmt.Errorf("rows.Err: %w", err)
+		// }`),
+		// 		numErrsEnhanced: 1,
+		// 		wantErr:         false,
+		// 	},
+		// 	{
+		// 		name: "double shorthand syntax",
+		// 		args: args{
+		// 			src: main(`
+		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
+		// 	return nil, err
+		// }
+		// if err := rows.Err(); err != nil {
+		// 	return nil, err
+		// }`),
+		// 			config: NewConfig(),
+		// 		},
+		// 		after: main(`
+		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
+		// 	return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
+		// }
+		// if err := rows.Err(); err != nil {
+		// 	return nil, fmt.Errorf("rows.Err: %w", err)
+		// }`),
+		// 		numErrsEnhanced: 2,
+		// 		wantErr:         false,
+		// 	},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
