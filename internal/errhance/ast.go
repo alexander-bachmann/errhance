@@ -6,7 +6,11 @@ import (
 	"strings"
 )
 
-// NOTE: all of errhance works with AST but this file is specifically for functions that know nothing of the errhance's intention
+// NOTE: Nearly all of errhance works with the AST package, but
+// this file is specifically for functions that know nothing of
+// errhance's intention.
+// For testing these types of functions, it is suggested to use
+// the helper function castSnippet to make your life easier.
 
 func isErrNilCheck(ifStmt ast.IfStmt) bool {
 	binExpr, ok := ifStmt.Cond.(*ast.BinaryExpr)
@@ -22,13 +26,19 @@ func isErrNilCheck(ifStmt ast.IfStmt) bool {
 	return true
 }
 
-// hasErrReturn expects the err to be the last return value
-// e.g. 'foo, bar, err := Baz()', not 'foo, err, bar := Baz()'
-func hasErrReturn(assignStmt ast.AssignStmt) bool {
-	if ident, ok := assignStmt.Lhs[len(assignStmt.Lhs)-1].(*ast.Ident); ok {
-		return ident.Name == "err"
+func isFmtErrorf(callExpr ast.CallExpr) bool {
+	selectorExpr, ok := callExpr.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
 	}
-	return false
+	pkgIdent, ok := selectorExpr.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	if pkgIdent.Name != "fmt" || selectorExpr.Sel.Name != "Errorf" {
+		return false
+	}
+	return true
 }
 
 // TODO: add support for 'err = <-errCh'
@@ -36,23 +46,27 @@ func generateWrappedErr(assignStmt ast.AssignStmt) string {
 	if !hasErrReturn(assignStmt) {
 		return ""
 	}
-	// val, err := Foo().Bar(Baz()).Flop() => Foo.Bar.Flop
-	name, ok := calledFuncsName(assignStmt)
-	if !ok || name == "" {
+	var name string
+	for _, rhs := range assignStmt.Rhs {
+		switch n := rhs.(type) {
+		case *ast.CallExpr:
+			// err := a.b.c().d() => a.b.c.d
+			name = callExprName(*n)
+		}
+	}
+	if name == "" {
 		return ""
 	}
 	return "fmt.Errorf(\"" + name + ": %w\", err)"
 }
 
-// TODO: consolidate into generateWrappedErr above
-func calledFuncsName(assignStmt ast.AssignStmt) (string, bool) {
-	for _, rhs := range assignStmt.Rhs {
-		switch n := rhs.(type) {
-		case *ast.CallExpr:
-			return callExprName(*n), true
-		}
+// hasErrReturn expects the err to be the last return value
+// e.g. 'foo, bar, err := Baz()', not 'foo, err, bar := Baz()'
+func hasErrReturn(assignStmt ast.AssignStmt) bool {
+	if ident, ok := assignStmt.Lhs[len(assignStmt.Lhs)-1].(*ast.Ident); ok {
+		return ident.Name == "err"
 	}
-	return "", false
+	return false
 }
 
 // a.b.c().d() => a.b.c.d

@@ -78,6 +78,15 @@ func enhanceNextErr(cfg Config, src string, file *ast.File) (string, bool) {
 			if containsOmitComment(src[int((*n).Pos())-1 : int((*n).End()-1)]) {
 				return Skip
 			}
+			if !isErrNilCheck(*n) {
+				return Skip
+			}
+			// ifStmt with assignStmt is shorthand err != nil syntax
+			// e.g. if err := foo(); err != nil {}
+			switch i := n.Init.(type) {
+			case *ast.AssignStmt:
+				newErr = generateWrappedErr(*i)
+			}
 			// return err => return fmt.Errorf("foo: %w", err)
 			var ok bool
 			src, ok = replaceErr(cfg, src, *n, newErr)
@@ -87,7 +96,7 @@ func enhanceNextErr(cfg Config, src string, file *ast.File) (string, bool) {
 			hasEnhanced = true
 			return Skip
 		}
-		printNode(src, node)
+		// printNode(src, node)
 		return Next
 	})
 	return src, hasEnhanced
@@ -97,20 +106,11 @@ func replaceErr(cfg Config, src string, ifStmt ast.IfStmt, newErr string) (strin
 	if newErr == "" {
 		return src, false
 	}
-	if !isErrNilCheck(ifStmt) {
-		return src, false
-	}
 	pos, length := returnedErrPosLen(cfg, src, ifStmt)
 	if pos == -1 || length == -1 {
 		return src, false
 	}
-	// if ifStmt has an assignStmt, it means it uses the shorthand err check syntax
-	// e.g. if err := foo(); err != nil {}
-	switch n := ifStmt.Init.(type) {
-	case *ast.AssignStmt:
-		newErr = generateWrappedErr(*n)
-	}
-	// make no changes if current err is what errhance generates
+	// make no changes if current err and new err are identical
 	if src[pos-1:pos+length-1] == newErr {
 		return src, false
 	}
@@ -128,16 +128,18 @@ func returnedErrPosLen(cfg Config, src string, ifStmt ast.IfStmt) (int, int) {
 		if !ok {
 			continue
 		}
+		if len(returnStmt.Results) == 0 {
+			continue
+		}
 		switch n := returnStmt.Results[len(returnStmt.Results)-1].(type) {
 		case *ast.Ident: // default case: return err
-			fmt.Println("siiiiiiimple", (*n).Name)
 			if (*n).Name == "err" {
 				pos = int((*n).Pos())
 				length = 3
 				return pos, length
 			}
 		case *ast.CallExpr: // requires an overwrite flag: return fmt.Errorf
-			if isValidFmtErrorf(cfg, src, n) {
+			if isValidFmtErrorf(cfg, src, *n) {
 				pos = int((*n).Pos())
 				length = int((*n).End() - (*n).Pos())
 				return pos, length
@@ -147,35 +149,26 @@ func returnedErrPosLen(cfg Config, src string, ifStmt ast.IfStmt) (int, int) {
 	return pos, length
 }
 
-func isValidFmtErrorf(cfg Config, src string, call *ast.CallExpr) bool {
+func isValidFmtErrorf(cfg Config, src string, callExpr ast.CallExpr) bool {
 	// skip unless requesting either --overwrite or --force-overwrite
 	if !cfg.overwrite && !cfg.forceOverwrite {
 		return false
 	}
-	// TODO: break out non-cfg section and add to ast.go
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-	pkgIdent, ok := sel.X.(*ast.Ident)
-	if !ok {
-		return false
-	}
-	if pkgIdent.Name != "fmt" || sel.Sel.Name != "Errorf" {
+	if !isFmtErrorf(callExpr) {
 		return false
 	}
 	// if not forcefully overwriting, check if there is:
 	if !cfg.forceOverwrite {
 		var args []string
-
-		for _, arg := range call.Args {
+		for _, arg := range callExpr.Args {
 			args = append(args, src[arg.Pos()-1:arg.End()-1])
 		}
-		// more than one format argument: fmt.Errorf("failed: %s: %w", str, err)
-		if len(args) > 2 { // > 2 because the format string is an arg too
+		// 1. more than one format argument: fmt.Errorf("failed: %s: %w", str, err)
+		// > 2 because the format string is an arg too
+		if len(args) > 2 {
 			return false
 		}
-		// sentinel errors: fmt.Errorf("failed: %w", ErrNotFound)
+		// 2. sentinel errors: fmt.Errorf("failed: %w", ErrNotFound)
 		if len(args) == 2 && args[1] != "err" {
 			return false
 		}

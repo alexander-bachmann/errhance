@@ -579,78 +579,78 @@ func TestFile(t *testing.T) {
 				}`),
 			wantErr: false,
 		},
-		// {
-		// 	name: "one method shorthand followed by error channel shorthand",
-		// 	args: args{
-		// 		src: main(`
-		// 			if err := r.Flush(); err != nil {
-		// 				return nil, err
-		// 			}
-		// 			if err = <-errCh; err != nil {
-		// 				return nil, err
-		// 			}`),
-		// 		config: NewConfig(),
-		// 	},
-		// 	after: main(`
-		// 			if err := r.Flush(); err != nil {
-		// 				return nil, fmt.Errorf("r.Flush: %w", err)
-		// 			}
-		// 			if err = <-errCh; err != nil {
-		// 				return nil, err
-		// 			}`),
-		// 	wantErr:         false,
-		// },
-		// {
-		// 	name: "one shorthand syntax statement #1",
-		// 	args: args{
-		// 		src: main(`
-		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-		// 	return nil, err
-		// }`),
-		// 		config: NewConfig(),
-		// 	},
-		// 	after: main(`
-		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-		// 	return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
-		// }`),
-		// 	wantErr:         false,
-		// },
-		// {
-		// 	name: "one shorthand syntax statement #2",
-		// 	args: args{
-		// 		src: main(`
-		// if err := rows.Err(); err != nil {
-		// 	return nil, err
-		// }`),
-		// 		config: NewConfig(),
-		// 	},
-		// 	after: main(`
-		// if err := rows.Err(); err != nil {
-		// 	return nil, fmt.Errorf("rows.Err: %w", err)
-		// }`),
-		// 	wantErr:         false,
-		// },
-		// {
-		// 	name: "double shorthand syntax",
-		// 	args: args{
-		// 		src: main(`
-		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-		// 	return nil, err
-		// }
-		// if err := rows.Err(); err != nil {
-		// 	return nil, err
-		// }`),
-		// 		config: NewConfig(),
-		// 	},
-		// 	after: main(`
-		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-		// 	return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
-		// }
-		// if err := rows.Err(); err != nil {
-		// 	return nil, fmt.Errorf("rows.Err: %w", err)
-		// }`),
-		// 	wantErr:         false,
-		// },
+		{
+			name: "one method shorthand followed by error channel shorthand",
+			args: args{
+				src: main(`
+					if err := r.Flush(); err != nil {
+						return nil, err
+					}
+					if err = <-errCh; err != nil {
+						return nil, err
+					}`),
+				config: NewConfig(),
+			},
+			after: main(`
+					if err := r.Flush(); err != nil {
+						return nil, fmt.Errorf("r.Flush: %w", err)
+					}
+					if err = <-errCh; err != nil {
+						return nil, err
+					}`),
+			wantErr: false,
+		},
+		{
+			name: "one shorthand syntax statement #1",
+			args: args{
+				src: main(`
+		if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
+			return nil, err
+		}`),
+				config: NewConfig(),
+			},
+			after: main(`
+		if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
+			return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
+		}`),
+			wantErr: false,
+		},
+		{
+			name: "one shorthand syntax statement #2",
+			args: args{
+				src: main(`
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}`),
+				config: NewConfig(),
+			},
+			after: main(`
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("rows.Err: %w", err)
+		}`),
+			wantErr: false,
+		},
+		{
+			name: "double shorthand syntax",
+			args: args{
+				src: main(`
+		if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}`),
+				config: NewConfig(),
+			},
+			after: main(`
+		if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
+			return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("rows.Err: %w", err)
+		}`),
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
