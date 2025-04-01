@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,37 +27,33 @@ func errhanceFiles(cfg fastwalk.Config) error {
 	return nil
 }
 
-func errhanceFile(path string, cfg errhance.Config) (int, error) {
+func errhanceFile(path string, cfg errhance.Config) (errhance.FileReport, error) {
 	before, err := os.ReadFile(path)
 	if err != nil {
-		return 0, fmt.Errorf("os.ReadFile: %w", err)
+		return errhance.FileReport{}, fmt.Errorf("os.ReadFile: %w", err)
 	}
-	after, numErrsEnhanced, err := errhance.File(string(before), cfg)
-	if err != nil {
-		return numErrsEnhanced, fmt.Errorf("%s: %w", path, err)
-	}
-	// len check first for performance
-	if len(before) == len(after) && string(before) == after {
-		return numErrsEnhanced, nil // no changes made
+	report, err := errhance.File(cfg, string(before))
+	if err != nil && !errors.Is(err, errhance.ErrNoChanges) {
+		return report, fmt.Errorf("%s: %w", path, err)
 	}
 	// open the file for writing and truncate
 	// its content without modifying permissions
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
 	if err != nil {
-		return numErrsEnhanced, fmt.Errorf("os.OpenFile: %w", err)
+		return report, fmt.Errorf("os.OpenFile: %w", err)
 	}
 	defer file.Close()
-	if _, err := file.Write([]byte(after)); err != nil {
-		return numErrsEnhanced, fmt.Errorf("file.Write: %w", err)
+	if _, err := file.Write([]byte(report.After)); err != nil {
+		return report, fmt.Errorf("file.Write: %w", err)
 	}
 	if err := file.Sync(); err != nil {
-		return numErrsEnhanced, fmt.Errorf("file.Sync: %w", err)
+		return report, fmt.Errorf("file.Sync: %w", err)
 	}
 	err = runGoimportsOnFile(path)
 	if err != nil {
-		return numErrsEnhanced, fmt.Errorf("failed to run goimports on %s: %w", path, err) // noeh
+		return report, fmt.Errorf("failed to run goimports on %s: %w", path, err) // noeh
 	}
-	return numErrsEnhanced, nil
+	return report, nil
 }
 
 func inGoProject() (bool, error) {

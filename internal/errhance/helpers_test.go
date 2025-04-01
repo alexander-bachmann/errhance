@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func Test_castSnippet(t *testing.T) {
+func Test_CastSnippet(t *testing.T) {
 	_, err := castSnippet[*ast.IfStmt]("if err != nil { return }")
 	if err != nil {
 		t.Errorf("castSnippet() error = %v", err)

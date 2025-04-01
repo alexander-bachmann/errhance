@@ -51,15 +51,15 @@ if err := foo.Bar(); err != nil {
 		//  closure for counting and for satisfying
 		// the workFunc signature in fastwalk.Config
 		errhanceFileWithArgs := func(_ context.Context, path string) error {
-			fileErrsEnhanced, err := errhanceFile(path, errhance.NewConfig(
+			report, err := errhanceFile(path, errhance.NewConfig(
 				errhance.WithOverwrite(overwrite),
 				errhance.WithForceOverwrite(forceOverwrite),
 				errhance.WithGenerated(generated),
 			))
-			if fileErrsEnhanced > 0 {
+			if report.TotalEnhanced > 0 {
 				totalFilesModified.Add(1)
 			}
-			totalErrorsEnhanced.Add(int64(fileErrsEnhanced))
+			totalErrorsEnhanced.Add(int64(report.TotalEnhanced))
 			return err // noeh
 		}
 		err = errhanceFiles(

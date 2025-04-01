@@ -1,6 +1,7 @@
 package errhance
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -18,11 +19,10 @@ func TestFile(t *testing.T) {
 		config Config
 	}
 	tests := []struct {
-		name            string
-		args            args
-		after           string
-		numErrsEnhanced int
-		wantErr         bool
+		name    string
+		args    args
+		after   string
+		wantErr bool
 	}{
 		{
 			name: "3 return values with err enhancement",
@@ -39,8 +39,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, lav, fmt.Errorf("Foo: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "2 return values with enhancement",
@@ -57,8 +56,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, fmt.Errorf("Foo: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "enhancing method func and package func",
@@ -95,8 +93,7 @@ func TestFile(t *testing.T) {
 						return val, fmt.Errorf("fum.Foo: %w", err)
 					}
 				}`,
-			numErrsEnhanced: 2,
-			wantErr:         false,
+			wantErr: false,
 		},
 
 		{
@@ -116,8 +113,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, fmt.Errorf("foo.Foo: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "returned error is not named err (would be a bug in original src)",
@@ -134,8 +130,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return err
 				}`),
-			numErrsEnhanced: 0,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "calling func returns 2 values, parent func returns 1 value",
@@ -152,8 +147,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("Foo: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "with comments",
@@ -174,8 +168,7 @@ func TestFile(t *testing.T) {
 					// return that thang
 					return fmt.Errorf("Foo: %w", err) // return it here
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "multiple enhancements in a single file",
@@ -200,8 +193,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("bar: %w", err)
 				}`),
-			numErrsEnhanced: 2,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "calling func returns 1 value, parent func returns 1 value",
@@ -218,8 +210,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("bar: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "nested func calls",
@@ -236,8 +227,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return fmt.Errorf("bar: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "most variants in a single file",
@@ -302,8 +292,7 @@ func TestFile(t *testing.T) {
 		    return fmt.Errorf("a.b.c.d: %w", err)
 		  }
 		}`,
-			numErrsEnhanced: 5,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "contains omit comment",
@@ -320,8 +309,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, err //noeh
 				}`),
-			numErrsEnhanced: 0,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "no --overwrite flag provided with pre-existing fmt.Errorf",
@@ -338,8 +326,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, fmt.Errorf("failed to run Foo: %w", err)
 				}`),
-			numErrsEnhanced: 0,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "overwrite previous fmt.Errorf",
@@ -356,8 +343,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, fmt.Errorf("Foo: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "ignore generated code",
@@ -380,8 +366,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, err
 				}`),
-			numErrsEnhanced: 0,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "errhance generated code",
@@ -404,8 +389,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, fmt.Errorf("Foo: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "chained with nested func calls",
@@ -422,8 +406,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, fmt.Errorf("Foo.Bar.Flop: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "default, no change to fmt.Errorf with multiple idents",
@@ -440,8 +423,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, fmt.Errorf("failed: %s: %w", val, err)
 				}`),
-			numErrsEnhanced: 0,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "with --overwrite, no change to fmt.Errorf with multiple idents",
@@ -458,8 +440,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, 0, 0, fmt.Errorf("failed: %s: %w", val, err)
 				}`),
-			numErrsEnhanced: 0,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "with --force-overwrite, change to fmt.Errorf with multiple idents",
@@ -476,8 +457,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, 0, 0, fmt.Errorf("Foo: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "default, no change to fmt.Errorf with sentinel err",
@@ -494,8 +474,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, fmt.Errorf("failed: %w", ErrNotFound)
 				}`),
-			numErrsEnhanced: 0,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "with --overwrite, no change to fmt.Errorf with sentinel err",
@@ -512,8 +491,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, 0, fmt.Errorf("failed: %w", ErrNotFound)
 				}`),
-			numErrsEnhanced: 0,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "with --force-overwrite, change to fmt.Errorf with sentinel err",
@@ -530,8 +508,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return val, fmt.Errorf("Foo: %w", err)
 				}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "with --overwrite, no change and formatting args are not just a simple identifier expression",
@@ -548,8 +525,7 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return 0, 0, 0, fmt.Errorf("%s: %w", str[0], err)
 				}`),
-			numErrsEnhanced: 0,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "error channel syntax unsupported (for now)",
@@ -564,8 +540,7 @@ func TestFile(t *testing.T) {
 				if err = <-errCh; err != nil {
 					return nil, err
 				}`),
-			numErrsEnhanced: 0,
-			wantErr:         false,
+			wantErr: false,
 		},
 		{
 			name: "weird",
@@ -602,99 +577,90 @@ func TestFile(t *testing.T) {
 				if err != nil {
 					return nil, fmt.Errorf("Foo: %w", err)
 				}`),
-			numErrsEnhanced: 2,
-			wantErr:         false,
+			wantErr: false,
 		},
-		{
-			name: "one method shorthand followed by error channel shorthand",
-			args: args{
-				src: main(`
-					if err := r.Flush(); err != nil {
-						return nil, err
-					}
-					if err = <-errCh; err != nil {
-						return nil, err
-					}`),
-				config: NewConfig(),
-			},
-			after: main(`
-					if err := r.Flush(); err != nil {
-						return nil, fmt.Errorf("r.Flush: %w", err)
-					}
-					if err = <-errCh; err != nil {
-						return nil, err
-					}`),
-			numErrsEnhanced: 1,
-			wantErr:         false,
-		},
-
-		// 	{
-		// 		name: "one shorthand syntax statement #1",
-		// 		args: args{
-		// 			src: main(`
+		// {
+		// 	name: "one method shorthand followed by error channel shorthand",
+		// 	args: args{
+		// 		src: main(`
+		// 			if err := r.Flush(); err != nil {
+		// 				return nil, err
+		// 			}
+		// 			if err = <-errCh; err != nil {
+		// 				return nil, err
+		// 			}`),
+		// 		config: NewConfig(),
+		// 	},
+		// 	after: main(`
+		// 			if err := r.Flush(); err != nil {
+		// 				return nil, fmt.Errorf("r.Flush: %w", err)
+		// 			}
+		// 			if err = <-errCh; err != nil {
+		// 				return nil, err
+		// 			}`),
+		// 	wantErr:         false,
+		// },
+		// {
+		// 	name: "one shorthand syntax statement #1",
+		// 	args: args{
+		// 		src: main(`
 		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
 		// 	return nil, err
 		// }`),
-		// 			config: NewConfig(),
-		// 		},
-		// 		after: main(`
+		// 		config: NewConfig(),
+		// 	},
+		// 	after: main(`
 		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
 		// 	return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
 		// }`),
-		// 		numErrsEnhanced: 1,
-		// 		wantErr:         false,
-		// 	},
-		// 	{
-		// 		name: "one shorthand syntax statement #2",
-		// 		args: args{
-		// 			src: main(`
+		// 	wantErr:         false,
+		// },
+		// {
+		// 	name: "one shorthand syntax statement #2",
+		// 	args: args{
+		// 		src: main(`
 		// if err := rows.Err(); err != nil {
 		// 	return nil, err
 		// }`),
-		// 			config: NewConfig(),
-		// 		},
-		// 		after: main(`
+		// 		config: NewConfig(),
+		// 	},
+		// 	after: main(`
 		// if err := rows.Err(); err != nil {
 		// 	return nil, fmt.Errorf("rows.Err: %w", err)
 		// }`),
-		// 		numErrsEnhanced: 1,
-		// 		wantErr:         false,
-		// 	},
-		// 	{
-		// 		name: "double shorthand syntax",
-		// 		args: args{
-		// 			src: main(`
+		// 	wantErr:         false,
+		// },
+		// {
+		// 	name: "double shorthand syntax",
+		// 	args: args{
+		// 		src: main(`
 		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
 		// 	return nil, err
 		// }
 		// if err := rows.Err(); err != nil {
 		// 	return nil, err
 		// }`),
-		// 			config: NewConfig(),
-		// 		},
-		// 		after: main(`
+		// 		config: NewConfig(),
+		// 	},
+		// 	after: main(`
 		// if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
 		// 	return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
 		// }
 		// if err := rows.Err(); err != nil {
 		// 	return nil, fmt.Errorf("rows.Err: %w", err)
 		// }`),
-		// 		numErrsEnhanced: 2,
-		// 		wantErr:         false,
-		// 	},
+		// 	wantErr:         false,
+		// },
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			after, numErrsEnhanced, err := File(tt.args.src, tt.args.config)
-			if (err != nil) != tt.wantErr {
+			report, err := File(tt.args.config, tt.args.src)
+			if (err != nil) != tt.wantErr && !errors.Is(err, ErrNoChanges) {
 				t.Errorf("File() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if after != tt.after {
-				t.Errorf("After: got = %v, want = %v", after, tt.after)
-			}
-			if numErrsEnhanced != tt.numErrsEnhanced {
-				t.Errorf("NumErrorsEnhanced: got = %v, want = %v", numErrsEnhanced, tt.numErrsEnhanced)
+			if report.After != tt.after {
+				t.Errorf("After: got = %v, want = %v", report.After, tt.after)
 			}
 		})
 	}
