@@ -8,7 +8,7 @@ import (
 )
 
 type Config struct {
-	workFunc           func(ctx context.Context, path string) error
+	WorkFunc           func(ctx context.Context, path string) error
 	rootFilepath       string
 	numWorkers         int
 	includeHidden      bool
@@ -26,7 +26,7 @@ func NewConfig(workFunc func(ctx context.Context, path string) error, opts ...Op
 		wd = "." // fallback to current directory if os.Getwd() fails
 	}
 	cfg := Config{
-		workFunc:           workFunc,
+		WorkFunc:           workFunc,
 		rootFilepath:       wd,
 		numWorkers:         4,
 		includeHidden:      false,

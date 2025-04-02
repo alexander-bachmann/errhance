@@ -36,7 +36,7 @@ func WalkContext(ctx context.Context, cfg Config) error {
 					return
 				}
 				// execute the provided work function.
-				if err := cfg.workFunc(ctx, p); err != nil {
+				if err := cfg.WorkFunc(ctx, p); err != nil {
 					// on error, send the error to errChan and cancel context to stop further work
 					select {
 					case errChan <- err:
