@@ -1,15 +1,31 @@
 package errhance
 
-type Config struct {
+import "github.com/alexander-bachmann/errhance/internal/fastwalk"
+
+type DirectoryConfig struct {
+	fwCfg fastwalk.Config
+}
+
+type DirectoryOpt func(*DirectoryConfig)
+
+func NewDirectoryConfig(fwCfg fastwalk.Config, opts ...DirectoryOpt) DirectoryConfig {
+	cfg := DirectoryConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return cfg
+}
+
+type SourceConfig struct {
 	overwrite      bool
 	forceOverwrite bool
 	generated      bool
 }
 
-type Option func(*Config)
+type SourceOpt func(*SourceConfig)
 
-func NewConfig(opts ...Option) Config {
-	cfg := Config{
+func NewSourceConfig(opts ...SourceOpt) SourceConfig {
+	cfg := SourceConfig{
 		overwrite:      false,
 		forceOverwrite: false,
 		generated:      false,
@@ -20,6 +36,6 @@ func NewConfig(opts ...Option) Config {
 	return cfg
 }
 
-func WithOverwrite(b bool) Option      { return func(cfg *Config) { cfg.overwrite = b } }
-func WithForceOverwrite(b bool) Option { return func(cfg *Config) { cfg.forceOverwrite = b } }
-func WithGenerated(b bool) Option      { return func(cfg *Config) { cfg.generated = b } }
+func WithOverwrite(b bool) SourceOpt      { return func(cfg *SourceConfig) { cfg.overwrite = b } }
+func WithForceOverwrite(b bool) SourceOpt { return func(cfg *SourceConfig) { cfg.forceOverwrite = b } }
+func WithGenerated(b bool) SourceOpt      { return func(cfg *SourceConfig) { cfg.generated = b } }

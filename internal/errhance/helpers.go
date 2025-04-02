@@ -5,9 +5,16 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 )
+
+func printNode(src string, node ast.Node) {
+	fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
+}
 
 // castSnippet makes it easier to test functions that interact with ast.Node types
 // Usage: ifStmt, err := castSnippet[*ast.IfStmt]("if err != nil { return }")
@@ -74,6 +81,48 @@ func isGeneratedFile(src string) bool {
 	return false
 }
 
-func printNode(src string, node ast.Node) {
-	fmt.Printf("%T: %s\n", node, src[int(node.Pos())-1:int(node.End()-1)])
+func runGoImportsOnFile(path string) error {
+	cmd := exec.Command("goimports", "-w", path)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("cmd.CombinedOutput: %w: %s", err, output)
+	}
+	return nil
+}
+
+func inGoProject() (bool, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false, fmt.Errorf("os.Getwd: %w", err)
+	}
+	for {
+		goModPath := filepath.Join(cwd, "go.mod")
+		if _, err := os.Stat(goModPath); err != nil {
+			if os.IsNotExist(err) {
+				// go.mod not found, check the parent directory.
+			} else {
+				return false, fmt.Errorf("os.Stat: %s: %w", goModPath, err)
+			}
+		} else {
+			return true, nil
+		}
+		parent := filepath.Dir(cwd)
+		if parent == cwd { // reached the root
+			break
+		}
+		cwd = parent
+	}
+	return false, nil
+}
+
+func downloadGoimportsIfMissing() error {
+	if _, err := exec.LookPath("goimports"); err == nil {
+		return nil
+	}
+	cmd := exec.Command("go", "install", "golang.org/x/tools/cmd/goimports@latest")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("cmd.CombinedOutput: %w: %s", err, output)
+	}
+	return nil
 }

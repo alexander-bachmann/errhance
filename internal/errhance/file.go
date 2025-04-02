@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"strings"
 )
 
@@ -13,19 +14,50 @@ var (
 	ErrNoChanges = errors.New("no changes")
 )
 
-type FileReport struct {
-	Before        string
-	After         string
-	TotalEnhanced int
-	Skipped       bool
+// may return ErrNoChanges
+func LocalFile(cfg SourceConfig, path string) (SourceReport, error) {
+	before, err := os.ReadFile(path)
+	if err != nil {
+		return SourceReport{}, fmt.Errorf("os.ReadFile: %w", err)
+	}
+	report, err := Source(cfg, string(before))
+	if err != nil {
+		return report, fmt.Errorf("Source: %w", err)
+	}
+	// open the file for writing and truncate
+	// its content without modifying permissions
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		return report, fmt.Errorf("os.OpenFile: %w", err)
+	}
+	defer file.Close()
+	if _, err := file.Write([]byte(report.After)); err != nil {
+		return report, fmt.Errorf("file.Write: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return report, fmt.Errorf("file.Sync: %w", err)
+	}
+	err = runGoImportsOnFile(path)
+	if err != nil {
+		return report, fmt.Errorf("runGoImportsOnFile: %w", err)
+	}
+	return report, nil
 }
 
-func File(cfg Config, src string) (FileReport, error) {
-	report := FileReport{
-		Before:        src,
-		After:         src,
-		TotalEnhanced: 0,
-		Skipped:       false,
+type SourceReport struct {
+	Skipped             bool
+	Before              string
+	After               string
+	TotalErrorsEnhanced int
+}
+
+// keep the core errhance logic as a pure function; any side effects should be put in LocalFile()
+func Source(cfg SourceConfig, src string) (SourceReport, error) {
+	report := SourceReport{
+		Before:              src,
+		After:               src,
+		TotalErrorsEnhanced: 0,
+		Skipped:             false,
 	}
 	if !cfg.generated && isGeneratedFile(report.Before) {
 		report.Skipped = true
@@ -42,7 +74,7 @@ func File(cfg Config, src string) (FileReport, error) {
 		var ok bool
 		src, ok = enhanceNextErr(cfg, src, astFile)
 		if ok {
-			report.TotalEnhanced++
+			report.TotalErrorsEnhanced++
 		} else {
 			// when enhanceNextErr does nothing, the file is completely enhanced
 			break
@@ -56,16 +88,17 @@ func File(cfg Config, src string) (FileReport, error) {
 }
 
 const (
-	Next = true
+	Next = true // recursively visit each non-nil child node
 	Skip = false
 )
 
-func enhanceNextErr(cfg Config, src string, file *ast.File) (string, bool) {
+func enhanceNextErr(cfg SourceConfig, src string, file *ast.File) (string, bool) {
 	var hasEnhanced bool
 	var newErr string
 
 	ast.Inspect(file, func(node ast.Node) bool {
-		// exit early after a single replacement to recalculate the positions
+		// exit early after a single enhancement
+		// to recalculate the AST positions
 		if hasEnhanced {
 			return Skip
 		}
@@ -103,7 +136,7 @@ func enhanceNextErr(cfg Config, src string, file *ast.File) (string, bool) {
 	return src, hasEnhanced
 }
 
-func replaceErr(cfg Config, src string, ifStmt ast.IfStmt, newErr string) (string, bool) {
+func replaceErr(cfg SourceConfig, src string, ifStmt ast.IfStmt, newErr string) (string, bool) {
 	if newErr == "" {
 		return src, false
 	}
@@ -131,7 +164,7 @@ func replaceErr(cfg Config, src string, ifStmt ast.IfStmt, newErr string) (strin
 	return src[:pos-1] + newErr + src[pos+length-1:], true
 }
 
-func returnedErrPosLen(cfg Config, src string, ifStmt ast.IfStmt) (int, int) {
+func returnedErrPosLen(cfg SourceConfig, src string, ifStmt ast.IfStmt) (int, int) {
 	pos := -1
 	length := -1
 	if ifStmt.Body == nil {
@@ -163,7 +196,7 @@ func returnedErrPosLen(cfg Config, src string, ifStmt ast.IfStmt) (int, int) {
 	return pos, length
 }
 
-func isValidFmtErrorf(cfg Config, src string, callExpr ast.CallExpr) bool {
+func isValidFmtErrorf(cfg SourceConfig, src string, callExpr ast.CallExpr) bool {
 	// skip unless requesting either --overwrite or --force-overwrite
 	if !cfg.overwrite && !cfg.forceOverwrite {
 		return false

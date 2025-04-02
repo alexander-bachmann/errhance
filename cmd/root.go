@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sync/atomic"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -50,49 +49,38 @@ if err := foo.Bar(); err != nil {
 		if err != nil {
 			return err // noeh
 		}
-		var totalFilesModified atomic.Int64
-		var totalErrorsEnhanced atomic.Int64
-		//  closure for counting and for satisfying
-		// the workFunc signature in fastwalk.Config
-		errhanceFileWithArgs := func(_ context.Context, path string) error {
-			report, err := errhanceFile(path, errhance.NewConfig(
-				errhance.WithOverwrite(overwrite),
-				errhance.WithForceOverwrite(forceOverwrite),
-				errhance.WithGenerated(generated),
-			))
-			if report.TotalEnhanced > 0 {
-				totalFilesModified.Add(1)
-			}
-			totalErrorsEnhanced.Add(int64(report.TotalEnhanced))
-			return err // noeh
-		}
 		skipDirectories := []string{"vendor"}
 		if vendor {
 			skipDirectories = []string{}
 		}
-		err = errhanceFiles(
-			fastwalk.NewConfig(
-				errhanceFileWithArgs,
-				fastwalk.WithOnlyExtensions([]string{".go"}),
-				fastwalk.WithSkipDirectories(skipDirectories),
-				fastwalk.WithOnlyFilepaths(filepaths),
-				// TODO: add support for changing the remaining fastwalk opts as args
-			))
+		emptyWorkFunc := func(_ context.Context, _ string) error { return nil }
+		dirCfg := errhance.NewDirectoryConfig(fastwalk.NewConfig(
+			emptyWorkFunc, // overwritten later
+			fastwalk.WithOnlyExtensions([]string{".go"}),
+			fastwalk.WithSkipDirectories(skipDirectories),
+			fastwalk.WithOnlyFilepaths(filepaths),
+		))
+		srcCfg := errhance.NewSourceConfig(
+			errhance.WithOverwrite(overwrite),
+			errhance.WithForceOverwrite(forceOverwrite),
+			errhance.WithGenerated(generated),
+		)
+		dirReport, err := errhance.LocalDirectory(dirCfg, srcCfg)
 		if err != nil {
 			return err // noeh
 		}
 		files := "files"
 		errs := "errors"
-		if totalFilesModified.Load() == 1 {
+		if dirReport.TotalFilesModified == 1 {
 			files = "file"
 		}
-		if totalErrorsEnhanced.Load() == 1 {
+		if dirReport.TotalErrorsEnhanced == 1 {
 			errs = "error"
 		}
 		cmd.Printf("%d %s modified, %d %s enhanced\n",
-			totalFilesModified.Load(),
+			dirReport.TotalFilesModified,
 			files,
-			totalErrorsEnhanced.Load(),
+			dirReport.TotalErrorsEnhanced,
 			errs,
 		)
 		return nil
