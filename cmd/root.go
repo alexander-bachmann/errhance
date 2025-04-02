@@ -54,12 +54,13 @@ if err := foo.Bar(); err != nil {
 			skipDirectories = []string{}
 		}
 		emptyWorkFunc := func(_ context.Context, _ string) error { return nil }
-		dirCfg := errhance.NewDirectoryConfig(fastwalk.NewConfig(
-			emptyWorkFunc, // overwritten later
-			fastwalk.WithOnlyExtensions([]string{".go"}),
-			fastwalk.WithSkipDirectories(skipDirectories),
-			fastwalk.WithOnlyFilepaths(filepaths),
-		))
+		dirCfg := errhance.NewDirectoryConfig(
+			fastwalk.NewConfig(
+				emptyWorkFunc, // overwritten in errhance.LocalDirectory
+				fastwalk.WithOnlyExtensions([]string{".go"}),
+				fastwalk.WithSkipDirectories(skipDirectories),
+				fastwalk.WithOnlyFilepaths(filepaths),
+			))
 		srcCfg := errhance.NewSourceConfig(
 			errhance.WithOverwrite(overwrite),
 			errhance.WithForceOverwrite(forceOverwrite),
@@ -67,7 +68,7 @@ if err := foo.Bar(); err != nil {
 		)
 		dirReport, err := errhance.LocalDirectory(dirCfg, srcCfg)
 		if err != nil {
-			return err // noeh
+			return fmt.Errorf("errhance.LocalDirectory: %w", err)
 		}
 		files := "files"
 		errs := "errors"

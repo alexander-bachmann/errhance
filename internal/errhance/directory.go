@@ -2,6 +2,7 @@ package errhance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -20,7 +21,11 @@ func LocalDirectory(dirCfg DirectoryConfig, srcCfg SourceConfig) (DirectoryRepor
 	dirCfg.fwCfg.WorkFunc = func(_ context.Context, path string) error {
 		srcReport, err := LocalFile(srcCfg, path)
 		if err != nil {
-			return fmt.Errorf("LocalFile: %s: %w", path, err)
+			if errors.Is(err, ErrNoChanges) {
+				return nil
+			} else {
+				return fmt.Errorf("LocalFile: %s: %w", path, err)
+			}
 		}
 		if srcReport.TotalErrorsEnhanced > 0 {
 			totalFilesModified.Add(1)
@@ -28,6 +33,7 @@ func LocalDirectory(dirCfg DirectoryConfig, srcCfg SourceConfig) (DirectoryRepor
 		totalErrorsEnhanced.Add(int64(srcReport.TotalErrorsEnhanced))
 		return nil
 	}
+
 	// reconsider if this matters
 	// valid, err := inGoProject()
 	// if err != nil || !valid {

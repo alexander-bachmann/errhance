@@ -9,7 +9,7 @@ type DirectoryConfig struct {
 type DirectoryOpt func(*DirectoryConfig)
 
 func NewDirectoryConfig(fwCfg fastwalk.Config, opts ...DirectoryOpt) DirectoryConfig {
-	cfg := DirectoryConfig{}
+	cfg := DirectoryConfig{fwCfg: fwCfg}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
