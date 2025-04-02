@@ -33,7 +33,10 @@ func errhanceFile(path string, cfg errhance.Config) (errhance.FileReport, error)
 		return errhance.FileReport{}, fmt.Errorf("os.ReadFile: %w", err)
 	}
 	report, err := errhance.File(cfg, string(before))
-	if err != nil && !errors.Is(err, errhance.ErrNoChanges) {
+	if err != nil {
+		if errors.Is(err, errhance.ErrNoChanges) {
+			return report, nil
+		}
 		return report, fmt.Errorf("%s: %w", path, err)
 	}
 	// open the file for writing and truncate
