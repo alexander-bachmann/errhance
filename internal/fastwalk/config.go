@@ -3,6 +3,7 @@ package fastwalk
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -69,7 +70,11 @@ func WithOnlyExtensions(exts []string) Option {
 
 func WithOnlyFilepaths(paths []string) Option {
 	return func(cfg *Config) {
+		wd, _ := os.Getwd()
 		for _, path := range paths {
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(wd, path)
+			}
 			cfg.onlyFilepaths[path] = struct{}{}
 		}
 	}
