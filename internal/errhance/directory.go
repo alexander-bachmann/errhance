@@ -15,6 +15,14 @@ type DirectoryReport struct {
 }
 
 func LocalDirectory(dirCfg DirectoryConfig, srcCfg SourceConfig) (DirectoryReport, error) {
+	// downloadGoImportsIfMissing should be in LocalFile
+	// because that is the function with a dependency on
+	// goimports but it does not make sense to check for
+	// goimports more than once
+	err := downloadGoimportsIfMissing()
+	if err != nil {
+		return DirectoryReport{}, fmt.Errorf("downloadGoimportsIfMissing: %w", err)
+	}
 	var totalFilesModified atomic.Int64
 	var totalErrorsEnhanced atomic.Int64
 	// closure for counting
@@ -33,20 +41,20 @@ func LocalDirectory(dirCfg DirectoryConfig, srcCfg SourceConfig) (DirectoryRepor
 		totalErrorsEnhanced.Add(int64(srcReport.TotalErrorsEnhanced))
 		return nil
 	}
-
-	// reconsider if this matters
-	// valid, err := inGoProject()
-	// if err != nil || !valid {
-	// 	return DirectoryReport{}, err
-	// }
-
-	// downloadGoImportsIfMissing should be in LocalFile
-	// because that is the function with a dependency on
-	// goimports but it does not make sense to check for
-	// goimports more than once
-	err := downloadGoimportsIfMissing()
-	if err != nil {
-		return DirectoryReport{}, fmt.Errorf("downloadGoimportsIfMissing: %w", err)
+	// if specific filepaths were explicitly requested,
+	// just work on those rather than walking entire project
+	filepaths := dirCfg.fwCfg.OnlyFilepaths()
+	if len(filepaths) != 0 {
+		for path := range filepaths {
+			err := dirCfg.fwCfg.WorkFunc(context.TODO(), path)
+			if err != nil {
+				return DirectoryReport{}, err // noeh
+			}
+		}
+		return DirectoryReport{
+			TotalFilesModified:  int(totalFilesModified.Load()),
+			TotalErrorsEnhanced: int(totalErrorsEnhanced.Load()),
+		}, nil
 	}
 	err = fastwalk.Walk(dirCfg.fwCfg)
 	if err != nil {

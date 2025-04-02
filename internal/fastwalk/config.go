@@ -87,3 +87,5 @@ func WithSkipDirectories(dirs []string) Option {
 		}
 	}
 }
+
+func (c *Config) OnlyFilepaths() map[string]struct{} { return c.onlyFilepaths }
