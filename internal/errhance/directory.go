@@ -25,7 +25,7 @@ func LocalDirectory(dirCfg DirectoryConfig, srcCfg SourceConfig) (DirectoryRepor
 	}
 	var totalFilesModified atomic.Int64
 	var totalErrorsEnhanced atomic.Int64
-	// closure for counting
+	// closure for counting and satisfying fastwalk.Config's WorkFunc
 	dirCfg.fwCfg.WorkFunc = func(_ context.Context, path string) error {
 		srcReport, err := LocalFile(srcCfg, path)
 		if err != nil {
