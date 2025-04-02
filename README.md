@@ -71,6 +71,9 @@ func Get(url string) (string, error) {
 - Generated code files are skipped.
   - Use the flag `--generated` to enhance generated files.
 
+- Files in the `vendor` directory are skipped.
+  - Use the flag `--vendor` to enhance files in the `vendor` directory.
+
 - Specific `if err != nil` blocks are skipped if a comment is detected with any of the following: `noeh`, `no eh`, `noerrhance`, or `no errhance`
   ```go
   // ...
