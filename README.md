@@ -89,3 +89,11 @@ func Get(url string) (string, error) {
 ## Dependencies
 - `errhance` depends on [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) and will automatically be downloaded if missing.
   - `errhance` depends on `goimports` to import the `fmt` package if introduced in a file. `fmt` is used to wrap errors with `fmt.Errorf`.
+
+## Miscellaneous
+- `errhance` can be called from within Neovim by adding the following keymap to your config
+  ```lua
+  vim.keymap.set('n', '<leader>geh',
+    ':w<cr>:!errhance --overwrite --filepaths=%:p:.<cr>:let view = winsaveview()<cr>:e!<cr>:call winrestview(view)<cr>',
+    { silent = true })
+  ```
