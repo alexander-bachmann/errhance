@@ -42,6 +42,10 @@ if err := foo.Bar(); err != nil {
 		if err != nil {
 			return err // noeh
 		}
+		vendor, err := cmd.Flags().GetBool("vendor")
+		if err != nil {
+			return err // noeh
+		}
 		filepaths, err := cmd.Flags().GetStringSlice("filepaths")
 		if err != nil {
 			return err // noeh
@@ -62,11 +66,15 @@ if err := foo.Bar(); err != nil {
 			totalErrorsEnhanced.Add(int64(report.TotalEnhanced))
 			return err // noeh
 		}
+		skipDirectories := []string{"vendor"}
+		if vendor {
+			skipDirectories = []string{}
+		}
 		err = errhanceFiles(
 			fastwalk.NewConfig(
 				errhanceFileWithArgs,
 				fastwalk.WithOnlyExtensions([]string{".go"}),
-				fastwalk.WithSkipDirectories([]string{"vendor"}),
+				fastwalk.WithSkipDirectories(skipDirectories),
 				fastwalk.WithOnlyFilepaths(filepaths),
 				// TODO: add support for changing the remaining fastwalk opts as args
 			))
@@ -107,6 +115,7 @@ func init() {
 	rootCmd.Flags().BoolP("overwrite", "o", false, "returns enhanced: err and safe fmt.Errorf")
 	rootCmd.Flags().BoolP("force-overwrite", "f", false, "returns enhanced: err, safe fmt.Errorf, and unsafe fmt.Errorf")
 	rootCmd.Flags().BoolP("generated", "g", false, "enhances returns in generated code")
+	rootCmd.Flags().BoolP("vendor", "v", false, "enhances returns in vendor directory")
 	rootCmd.Flags().StringSlice("filepaths", []string{}, "enhances specific filepaths")
 }
 

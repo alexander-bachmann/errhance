@@ -97,7 +97,7 @@ func enhanceNextErr(cfg Config, src string, file *ast.File) (string, bool) {
 			hasEnhanced = true
 			return Skip
 		}
-		printNode(src, node)
+		// printNode(src, node)
 		return Next
 	})
 	return src, hasEnhanced
