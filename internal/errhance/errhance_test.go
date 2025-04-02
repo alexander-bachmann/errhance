@@ -651,6 +651,46 @@ func TestFile(t *testing.T) {
 		}`),
 			wantErr: false,
 		},
+		{
+			name: "nested shorthands",
+			args: args{
+				src: main(`
+		if d := uint32(aoeu - snth); d > 0 {
+			if err := a.abc.zxy.Write(0, d); err != nil {
+				return nil, err
+			}
+		}`),
+				config: NewConfig(),
+			},
+			after: main(`
+		if d := uint32(aoeu - snth); d > 0 {
+			if err := a.abc.zxy.Write(0, d); err != nil {
+				return nil, fmt.Errorf("a.abc.zxy.Write: %w", err)
+			}
+		}`),
+			wantErr: false,
+		},
+		{
+			name: "err is overwritten inside if, don't support",
+			args: args{
+				src: main(`
+		if foo := uint32(bar - baz); foo> 0 {
+			if err := f.aoeu.snth.Read(1, foo); err != nil {
+				err = something(true, err, "bleep", err)
+				return nil, err
+			}
+		}`),
+				config: NewConfig(),
+			},
+			after: main(`
+		if foo := uint32(bar - baz); foo> 0 {
+			if err := f.aoeu.snth.Read(1, foo); err != nil {
+				err = something(true, err, "bleep", err)
+				return nil, err
+			}
+		}`),
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

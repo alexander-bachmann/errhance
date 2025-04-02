@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strings"
 )
 
 var (
@@ -79,7 +80,7 @@ func enhanceNextErr(cfg Config, src string, file *ast.File) (string, bool) {
 				return Skip
 			}
 			if !isErrNilCheck(*n) {
-				return Skip
+				return Next
 			}
 			// ifStmt with assignStmt is shorthand err != nil syntax
 			// e.g. if err := foo(); err != nil {}
@@ -96,7 +97,7 @@ func enhanceNextErr(cfg Config, src string, file *ast.File) (string, bool) {
 			hasEnhanced = true
 			return Skip
 		}
-		// printNode(src, node)
+		printNode(src, node)
 		return Next
 	})
 	return src, hasEnhanced
@@ -105,6 +106,19 @@ func enhanceNextErr(cfg Config, src string, file *ast.File) (string, bool) {
 func replaceErr(cfg Config, src string, ifStmt ast.IfStmt, newErr string) (string, bool) {
 	if newErr == "" {
 		return src, false
+	}
+	// skip if err value is overwritten before being returned.
+	/*
+		if err != nil {
+			err = doSomething(err)
+			return err
+		}
+	*/
+	if ifStmt.Body != nil {
+		block := src[ifStmt.Body.Lbrace-1 : ifStmt.Body.Rbrace]
+		if strings.Contains(block, "err :=") || strings.Contains(block, "err =") {
+			return src, false
+		}
 	}
 	pos, length := returnedErrPosLen(cfg, src, ifStmt)
 	if pos == -1 || length == -1 {
