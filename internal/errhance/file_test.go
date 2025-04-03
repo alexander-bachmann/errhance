@@ -694,7 +694,7 @@ func TestSource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			report, err := Source(tt.args.config, tt.args.src)
+			report, err := Source(tt.args.config, "", tt.args.src)
 			if (err != nil) != tt.wantErr && !errors.Is(err, ErrNoChanges) {
 				t.Errorf("Source() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -1,6 +1,7 @@
 package errhance
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"strings"
@@ -42,22 +43,26 @@ func isFmtErrorf(callExpr ast.CallExpr) bool {
 }
 
 // TODO: add support for 'err = <-errCh'
-func generateWrappedErr(assignStmt ast.AssignStmt) string {
+func generateWrappedErr(path string, assignStmt ast.AssignStmt, fset *token.FileSet) string {
 	if !hasErrReturn(assignStmt) {
 		return ""
 	}
-	var name string
+	var callName string
 	for _, rhs := range assignStmt.Rhs {
 		switch n := rhs.(type) {
 		case *ast.CallExpr:
 			// err := a.b.c().d() => a.b.c.d
-			name = callExprName(*n)
+			callName = callExprName(*n)
 		}
 	}
-	if name == "" {
+	if callName == "" {
 		return ""
 	}
-	return "fmt.Errorf(\"" + name + ": %w\", err)"
+	if fset != nil && path != "" {
+		line := fset.Position(assignStmt.Pos()).Line
+		return fmt.Sprintf(`fmt.Errorf("[%s:%d] %s: `, path, line, callName) + "%w\", err)"
+	}
+	return "fmt.Errorf(\"" + callName + ": %w\", err)"
 }
 
 // hasErrReturn expects the err to be the last return value

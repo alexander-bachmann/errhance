@@ -49,6 +49,10 @@ if err := foo.Bar(); err != nil {
 		if err != nil {
 			return err // noeh
 		}
+		includeRelativePath, err := cmd.Flags().GetBool("include-relative-path")
+		if err != nil {
+			return err // noeh
+		}
 		skipDirectories := []string{"vendor"}
 		if vendor {
 			skipDirectories = []string{}
@@ -65,6 +69,7 @@ if err := foo.Bar(); err != nil {
 			errhance.WithOverwrite(overwrite),
 			errhance.WithForceOverwrite(forceOverwrite),
 			errhance.WithGenerated(generated),
+			errhance.WithIncludeRelativePath(includeRelativePath),
 		)
 		dirReport, err := errhance.LocalDirectory(dirCfg, srcCfg)
 		if err != nil {
@@ -106,6 +111,7 @@ func init() {
 	rootCmd.Flags().BoolP("generated", "g", false, "enhances returns in generated code")
 	rootCmd.Flags().BoolP("vendor", "v", false, "enhances returns in vendor directory")
 	rootCmd.Flags().StringSlice("filepaths", []string{}, "enhances specific filepaths")
+	rootCmd.Flags().Bool("include-relative-path", false, "includes relative path in the error")
 }
 
 func initConfig() {

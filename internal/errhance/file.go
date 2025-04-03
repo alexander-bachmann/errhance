@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -20,7 +21,7 @@ func LocalFile(cfg SourceConfig, path string) (SourceReport, error) {
 	if err != nil {
 		return SourceReport{}, fmt.Errorf("os.ReadFile: %w", err)
 	}
-	report, err := Source(cfg, string(before))
+	report, err := Source(cfg, path, string(before))
 	if err != nil {
 		return report, fmt.Errorf("Source: %w", err)
 	}
@@ -52,7 +53,7 @@ type SourceReport struct {
 }
 
 // keep the core errhance logic as a pure function; any side effects should be put in LocalFile()
-func Source(cfg SourceConfig, src string) (SourceReport, error) {
+func Source(cfg SourceConfig, path, src string) (SourceReport, error) {
 	report := SourceReport{
 		Before:              src,
 		After:               src,
@@ -63,16 +64,25 @@ func Source(cfg SourceConfig, src string) (SourceReport, error) {
 		report.Skipped = true
 		return report, ErrNoChanges
 	}
-	for {
-		// recompute AST after each replacement,
-		// otherwise node positions will be inaccurate
-		fset := token.NewFileSet()
-		astFile, err := parser.ParseFile(fset, "", src, 0)
+	if cfg.includeRelativePath {
+		wd, err := os.Getwd()
 		if err != nil {
-			return report, fmt.Errorf("parser.ParseFile: %w", err)
+			return report, fmt.Errorf("os.Getwd: %w", err)
 		}
+		path, err = filepath.Rel(wd, path)
+		if err != nil {
+			return report, fmt.Errorf("filepath.Rel: %w", err)
+		}
+	} else {
+		path = ""
+	}
+	for {
 		var ok bool
-		src, ok = enhanceNextErr(cfg, src, astFile)
+		var err error
+		src, ok, err = enhanceNextErr(cfg, path, src)
+		if err != nil {
+			return report, fmt.Errorf("enhanceNextErr: %w", err)
+		}
 		if ok {
 			report.TotalErrorsEnhanced++
 		} else {
@@ -92,10 +102,17 @@ const (
 	Skip = false
 )
 
-func enhanceNextErr(cfg SourceConfig, src string, file *ast.File) (string, bool) {
+func enhanceNextErr(cfg SourceConfig, path, src string) (string, bool, error) {
 	var hasEnhanced bool
 	var newErr string
 
+	// recompute AST after each replacement,
+	// otherwise node positions will be inaccurate
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "", src, 0)
+	if err != nil {
+		return src, hasEnhanced, fmt.Errorf("parser.ParseFile: %w", err)
+	}
 	ast.Inspect(file, func(node ast.Node) bool {
 		// exit early after a single enhancement
 		// to recalculate the AST positions
@@ -107,7 +124,7 @@ func enhanceNextErr(cfg SourceConfig, src string, file *ast.File) (string, bool)
 		}
 		switch n := node.(type) {
 		case *ast.AssignStmt: // err := foo()
-			newErr = generateWrappedErr(*n) // fmt.Errorf("foo: %w", err)
+			newErr = generateWrappedErr(path, *n, fset) // fmt.Errorf("foo: %w", err)
 		case *ast.IfStmt: // if err != nil
 			if containsOmitComment(src[int((*n).Pos())-1 : int((*n).End()-1)]) {
 				return Skip
@@ -119,7 +136,7 @@ func enhanceNextErr(cfg SourceConfig, src string, file *ast.File) (string, bool)
 			// e.g. if err := foo(); err != nil {}
 			switch i := n.Init.(type) {
 			case *ast.AssignStmt:
-				newErr = generateWrappedErr(*i)
+				newErr = generateWrappedErr(path, *i, fset)
 			}
 			// return err => return fmt.Errorf("foo: %w", err)
 			var ok bool
@@ -133,7 +150,7 @@ func enhanceNextErr(cfg SourceConfig, src string, file *ast.File) (string, bool)
 		// printNode(src, node)
 		return Next
 	})
-	return src, hasEnhanced
+	return src, hasEnhanced, nil
 }
 
 func replaceErr(cfg SourceConfig, src string, ifStmt ast.IfStmt, newErr string) (string, bool) {

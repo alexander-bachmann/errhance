@@ -26,7 +26,7 @@ func Test_generateWrappedErr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := generateWrappedErr(tt.args.assignStmt); got != tt.want {
+			if got := generateWrappedErr("", tt.args.assignStmt, nil); got != tt.want {
 				t.Errorf("generateWrappedErr() = %v, want %v", got, tt.want)
 			}
 		})
