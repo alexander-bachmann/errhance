@@ -97,3 +97,7 @@ func Get(url string) (string, error) {
     ':w<cr>:!errhance --overwrite --filepaths=%:p:.<cr>:let view = winsaveview()<cr>:e!<cr>:call winrestview(view)<cr>',
     { silent = true })
   ```
+
+## License
+- This project is released under the [Unlicense](https://unlicense.org)
+- One file, `internal/fmtstr/parse.go`, is copied from an internal package in the Go `x/tools` project and is licensed under a [BSD-style license](internal/fmtstr/LICENSE)
