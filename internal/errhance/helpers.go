@@ -72,7 +72,7 @@ func isGeneratedFile(src string) bool {
 			return false
 		}
 		for _, snippet := range snippets {
-			if strings.Contains(line, snippet) {
+			if strings.Contains(strings.ToLower(line), snippet) {
 				return true
 			}
 		}
