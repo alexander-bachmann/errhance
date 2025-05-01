@@ -56,7 +56,6 @@ func containsOmitComment(src string) bool {
 }
 
 func isGeneratedFile(src string) bool {
-	const snippetLen = 200
 	snippets := []string{
 		"code generated",
 		"generated code",
@@ -67,15 +66,15 @@ func isGeneratedFile(src string) bool {
 		"do not modify",
 		"this file was generated",
 	}
-	// use entire src file if it's shorter than snippetLen
-	end := snippetLen
-	if len(src) < snippetLen {
-		end = len(src)
-	}
-	top := strings.ToLower(src[:end])
-	for _, snippet := range snippets {
-		if strings.Contains(top, snippet) {
-			return true
+	lines := strings.Split(src, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "package") {
+			return false
+		}
+		for _, snippet := range snippets {
+			if strings.Contains(line, snippet) {
+				return true
+			}
 		}
 	}
 	return false
