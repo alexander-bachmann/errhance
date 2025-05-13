@@ -104,7 +104,7 @@ const (
 
 func enhanceNextErr(cfg SourceConfig, path, src string) (string, bool, error) {
 	var hasEnhanced bool
-	var newErr string
+	var name string
 
 	// recompute AST after each replacement,
 	// otherwise node positions will be inaccurate
@@ -114,8 +114,7 @@ func enhanceNextErr(cfg SourceConfig, path, src string) (string, bool, error) {
 		return src, hasEnhanced, fmt.Errorf("parser.ParseFile: %w", err)
 	}
 	ast.Inspect(file, func(node ast.Node) bool {
-		// exit early after a single enhancement
-		// to recalculate the AST positions
+		// after a single enhancement, exit early to recalculate node positions
 		if hasEnhanced {
 			return Skip
 		}
@@ -123,24 +122,31 @@ func enhanceNextErr(cfg SourceConfig, path, src string) (string, bool, error) {
 			return Next
 		}
 		switch n := node.(type) {
-		case *ast.AssignStmt: // err := foo()
-			newErr = generateWrappedErr(path, *n, fset) // fmt.Errorf("foo: %w", err)
-		case *ast.IfStmt: // if err != nil
-			if containsOmitComment(src[int((*n).Pos())-1 : int((*n).End()-1)]) {
-				return Skip
-			}
-			if !isErrNilCheck(*n) {
+		case *ast.AssignStmt: // err := foo().bar()
+			if !returnsErr(*n) {
 				return Next
 			}
-			// ifStmt with assignStmt is shorthand err != nil syntax
-			// e.g. if err := foo(); err != nil {}
-			switch i := n.Init.(type) {
-			case *ast.AssignStmt:
-				newErr = generateWrappedErr(path, *i, fset)
+			name = callExprName(*n) // foo.bar
+
+		case *ast.IfStmt: // if err != nil
+			if !hasErrNotEqualNilCond(*n) {
+				return Next
 			}
+			block := src[int((*n).Pos())-1 : int((*n).End()-1)]
+			if containsOmitComment(block) {
+				return Skip
+			}
+			// AssignStmt within IfStmt indicates shorthand syntax
+			// if err := foo(); err != nil
+			if i, ok := n.Init.(*ast.AssignStmt); ok {
+				name = callExprName(*i) // foo.bar
+			}
+
+			// HEEEEERE
+
 			// return err => return fmt.Errorf("foo: %w", err)
 			var ok bool
-			src, ok = replaceErr(cfg, src, *n, newErr)
+			src, ok = replaceErr(cfg, src, *n, name)
 			if !ok {
 				break
 			}
