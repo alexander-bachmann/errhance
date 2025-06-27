@@ -7,12 +7,12 @@ import (
 	"github.com/alexander-bachmann/errhance/internal/fmtstr"
 )
 
-func collectFmtDirectives(str string) (string, error) {
+func parseDirectives(str string) ([]string, error) {
 	ops, err := fmtstr.Parse(str, -1)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	var directives []string
+	var dirs []string
 	for _, op := range ops {
 		if op == nil {
 			continue
@@ -21,15 +21,46 @@ func collectFmtDirectives(str string) (string, error) {
 		if op.Text == "%%" {
 			continue
 		}
-		directives = append(directives, op.Text)
+		dirs = append(dirs, op.Text)
 	}
-	return strings.Join(directives, ": "), nil
+	return dirs, nil
+}
+
+// if more directives than args, abort? error and print why?
+
+// e.g. "io.ReadAll", ["%w", "%s"] => "io.ReadAll: %w: %s"
+func newFmtErrorfMsg(fnName string, dirs []string) string {
+	if len(dirs) == 0 {
+		dirs = []string{"%w"}
+	}
+	return fmt.Sprintf(`"%s: %s"`, fnName, strings.Join(dirs, ": "))
+}
+
+// e.g. "io.ReadAll: %w: %s", ["err", "url"] => fmt.Errorf("io.ReadAll: %w: %s", err, url)
+func newFmtErrorf(msg string, args []string) string {
+	if len(args) == 0 {
+		args = []string{"err"}
+	}
+	return fmt.Sprintf(`fmt.Errorf(%s, %s)`, msg, strings.Join(args, ", "))
 }
 
 func main() {
-	wtf := "%[1]*.[2]*[3]f | %+010d | %#x | %-15s | %#[4]o | %[5]T | %[6]q | %+[7]v | %08b | %#08X | %%"
+	// wtf := "%[1]*.[2]*[3]f | %+010d | %#x | %-15s | %#[4]o | %[5]T | %[6]q | %+[7]v | %08b | %#08X | %%"
 
-	fmt.Println(collectFmtDirectives(wtf))
+	// if more than just err but only 1 formatting directive, default to %v?
+
+	fnName := "io.ReadAll"
+	args := []string{"err", "url", "rawBody"}
+	someErr := `fmt.Errorf("failed to read body: %w | url: %s | body: %s", err, url, rawBody)`
+
+	dirs, err := parseDirectives(someErr)
+	if err != nil {
+		panic(err)
+	}
+	msg := newFmtErrorfMsg(fnName, dirs)
+
+	er := newFmtErrorf(msg, args)
+	fmt.Printf("er: %v\n", er)
 
 	// cmd.Execute()
 }
