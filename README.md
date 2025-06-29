@@ -57,7 +57,7 @@ errhance --overwrite
 
 ## Dependencies
 - `errhance` depends on [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) and will automatically be downloaded if missing.
-  - `errhance` depends on `goimports` to import the `fmt` package if introduced in a file. `fmt` is used to wrap errors with `fmt.Errorf`.
+  - `goimports` is used to import the `fmt` package if introduced in a file. `fmt` is used to wrap errors with `fmt.Errorf`.
 
 ## License
 - This project is released under the [Unlicense](https://unlicense.org).
