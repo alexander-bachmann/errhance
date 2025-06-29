@@ -7,7 +7,6 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/alexander-bachmann/errhance/internal/fmtstr"
@@ -23,7 +22,7 @@ func LocalFile(cfg SourceConfig, path string) (SourceReport, error) {
 	if err != nil {
 		return SourceReport{}, fmt.Errorf("os.ReadFile: %w", err)
 	}
-	report, err := Source(cfg, path, string(before))
+	report, err := Source(cfg, string(before))
 	if err != nil {
 		return report, fmt.Errorf("Source: %w", err)
 	}
@@ -55,7 +54,7 @@ type SourceReport struct {
 }
 
 // keep the core errhance logic as a pure function; any side effects should be put in LocalFile()
-func Source(cfg SourceConfig, path, src string) (SourceReport, error) {
+func Source(cfg SourceConfig, src string) (SourceReport, error) {
 	report := SourceReport{
 		Before:              src,
 		After:               src,
@@ -66,22 +65,10 @@ func Source(cfg SourceConfig, path, src string) (SourceReport, error) {
 		report.Skipped = true
 		return report, ErrNoChanges
 	}
-	if cfg.includeRelativePath {
-		wd, err := os.Getwd()
-		if err != nil {
-			return report, fmt.Errorf("os.Getwd: %w", err)
-		}
-		path, err = filepath.Rel(wd, path)
-		if err != nil {
-			return report, fmt.Errorf("filepath.Rel: %w", err)
-		}
-	} else {
-		path = ""
-	}
 	for {
 		var ok bool
 		var err error
-		src, ok, err = enhanceNextErr(cfg, path, src)
+		src, ok, err = enhanceNextErr(cfg, src)
 		if err != nil {
 			return report, fmt.Errorf("enhanceNextErr: %w", err)
 		}
@@ -104,7 +91,7 @@ const (
 	Skip = false
 )
 
-func enhanceNextErr(cfg SourceConfig, path, src string) (string, bool, error) {
+func enhanceNextErr(cfg SourceConfig, src string) (string, bool, error) {
 	var hasEnhanced bool
 	var name string
 

@@ -45,10 +45,6 @@ if err := foo.Bar(); err != nil {
 		if err != nil {
 			return err // noeh
 		}
-		includeRelativePath, err := cmd.Flags().GetBool("include-relative-path")
-		if err != nil {
-			return err // noeh
-		}
 		skipDirectories := []string{"vendor"}
 		if vendor {
 			skipDirectories = []string{}
@@ -64,7 +60,6 @@ if err := foo.Bar(); err != nil {
 		srcCfg := errhance.NewSourceConfig(
 			errhance.WithOverwrite(overwrite),
 			errhance.WithGenerated(generated),
-			errhance.WithIncludeRelativePath(includeRelativePath),
 		)
 		dirReport, err := errhance.LocalDirectory(dirCfg, srcCfg)
 		if err != nil {
@@ -101,11 +96,10 @@ func init() {
 	// uncomment to use viper
 	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.errhance.yaml)")
 
-	rootCmd.Flags().BoolP("overwrite", "o", false, "returns enhanced: err and safe fmt.Errorf")
+	rootCmd.Flags().BoolP("overwrite", "o", false, "returns enhanced: err and fmt.Errorf")
 	rootCmd.Flags().BoolP("generated", "g", false, "enhances returns in generated code")
 	rootCmd.Flags().BoolP("vendor", "v", false, "enhances returns in vendor directory")
 	rootCmd.Flags().StringSlice("filepaths", []string{}, "enhances specific filepaths")
-	rootCmd.Flags().Bool("include-relative-path", false, "includes relative path in the error")
 }
 
 func initConfig() {
