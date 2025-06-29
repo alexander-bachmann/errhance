@@ -262,6 +262,7 @@ func ParseFmtErrorf(src string, callExpr ast.CallExpr) (FmtErrorf, error) {
 // e.g. io.ReadAll => fmt.Errorf("io.ReadAll: %w: %s", err, url)
 func (f *FmtErrorf) Errhance(callFn string) string {
 	f.tryDirectivesSupplement()
+	f.tryErrorDirectivesUpgrade()
 	f.Format = strings.Join(append([]string{callFn}, f.Directives...), ": ")
 	return fmt.Sprintf(`fmt.Errorf(%s)`,
 		strings.Join(append([]string{`"` + f.Format + `"`}, f.Args...), ", "))
@@ -292,12 +293,28 @@ func (f *FmtErrorf) tryDirectivesSupplement() {
 	}
 	f.Directives = []string{}
 	for _, arg := range f.Args {
-		lowerArg := strings.ToLower(arg)
-		if strings.HasPrefix(lowerArg, "err") ||
-			strings.HasSuffix(lowerArg, "err") {
+		if probablyErrorArg(arg) {
 			f.Directives = append(f.Directives, "%w")
 		} else {
 			f.Directives = append(f.Directives, "%v")
 		}
 	}
+}
+
+func (f *FmtErrorf) tryErrorDirectivesUpgrade() {
+	if len(f.Directives) != len(f.Args) {
+		return
+	}
+	for i, arg := range f.Args {
+		if probablyErrorArg(arg) {
+			if f.Directives[i] == "%v" {
+				f.Directives[i] = "%w"
+			}
+		}
+	}
+}
+
+func probablyErrorArg(arg string) bool {
+	lowerArg := strings.ToLower(arg)
+	return strings.HasPrefix(lowerArg, "err") || strings.HasSuffix(lowerArg, "err")
 }
