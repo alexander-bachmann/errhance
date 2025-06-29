@@ -33,10 +33,6 @@ if err := foo.Bar(); err != nil {
 		if err != nil {
 			return err // noeh
 		}
-		forceOverwrite, err := cmd.Flags().GetBool("force-overwrite")
-		if err != nil {
-			return err // noeh
-		}
 		generated, err := cmd.Flags().GetBool("generated")
 		if err != nil {
 			return err // noeh
@@ -67,7 +63,6 @@ if err := foo.Bar(); err != nil {
 			))
 		srcCfg := errhance.NewSourceConfig(
 			errhance.WithOverwrite(overwrite),
-			errhance.WithForceOverwrite(forceOverwrite),
 			errhance.WithGenerated(generated),
 			errhance.WithIncludeRelativePath(includeRelativePath),
 		)
@@ -107,7 +102,6 @@ func init() {
 	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.errhance.yaml)")
 
 	rootCmd.Flags().BoolP("overwrite", "o", false, "returns enhanced: err and safe fmt.Errorf")
-	rootCmd.Flags().BoolP("force-overwrite", "f", false, "returns enhanced: err, safe fmt.Errorf, and unsafe fmt.Errorf")
 	rootCmd.Flags().BoolP("generated", "g", false, "enhances returns in generated code")
 	rootCmd.Flags().BoolP("vendor", "v", false, "enhances returns in vendor directory")
 	rootCmd.Flags().StringSlice("filepaths", []string{}, "enhances specific filepaths")
