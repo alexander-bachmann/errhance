@@ -5,68 +5,37 @@
 go install github.com/alexander-bachmann/errhance@latest
 ```
 
-## Run
-```
-errhance
-```
-
 ## What Happens?
 - `errhance` recursively traverses a Go project, enhances returned errors, and writes the changes. The errors are enhanced by wrapping them with the name of the function that initially returned the error.
+  ```
+  // Before
+  if err := foo.Bar(); err != nil {
+      return err
+  }
+  // After
+  if err := foo.Bar(); err != nil {
+      return fmt.Errorf("foo.Bar: %w", err)
+  }
+  ```
 
-### Example
+## Examples:
+### Kubernetes
 ```bash
-% errhance
-52 files modified, 201 errors enhanced
+errhance
+1970 files modified, 9507 errors enhanced
 ```
+- https://github.com/alexander-bachmann/kubernetes/commit/583ae82f83e13a8aa0fba8e844bee0398c46ec97
+---
+```bash
+errhance --overwrite
+2205 files modified, 12544 errors enhanced
+```
+- https://github.com/alexander-bachmann/kubernetes/commit/99fdf386d93e7518fb2e6776df3158f24e795683
 
-#### Before
-```go
-func Get(url string) (string, error) {
-    resp, err := http.Get(url)
-    if err != nil {
-        return "", err
-    }
-    defer resp.Body.Close()
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return "", err
-    }
-    return string(body), nil
-}
-```
-#### After
-```go
-func Get(url string) (string, error) {
-    resp, err := http.Get(url)
-    if err != nil {
-        return "", fmt.Errorf("http.Get: %w", err)
-    }
-    defer resp.Body.Close()
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return "", fmt.Errorf("io.ReadAll: %w", err)
-    }
-    return string(body), nil
-}
-```
 
 ## Behavior
-- Only `return err` statements are enhanced.
-  - Use the flags `--overwrite` or `--force-overwrite` to also enhance `return fmt.Errorf` statements.
-    - `--overwrite` will enhance both `return err` and `return fmt.Errorf` statements that have been deemed **safe** to enhance.
-    - `--force-overwrite` will enhance `return err` , **safe** `return fmt.Errorf`, and **unsafe** `return fmt.Errorf` statements.
-    - Examples:
-      - Safe: will be enhanced with `errhance --overwrite`
-        ```go
-        return fmt.Errorf("failed: %w", err)
-        ```
-      - Unsafe: will be enhanced with `errhance --force-overwrite`
-        ```go
-        return fmt.Errorf("failed: %w", ErrNotFound)    // sentinel error
-        return fmt.Errorf("failed: %w: %w", errA, errB) // multiple format arguments
-        ```
-        - Returning a sentinel error is deemed unsafe for enhancement because it is probable that code further up the call stack depends on that error using `errors.Is()` or `errors.As()`.
-        - Returning an error with multiple format arguments is deemed unsafe for enhancement because it is probable that the the additional formatted argument(s) are necessary.
+- By default, only `return err` statements are enhanced.
+  - Use the flag `--overwrite` to also enhance `return fmt.Errorf()` statements.
 
 - Generated code files are skipped.
   - Use the flag `--generated` to enhance generated files.
@@ -74,7 +43,7 @@ func Get(url string) (string, error) {
 - Files in the `vendor` directory are skipped.
   - Use the flag `--vendor` to enhance files in the `vendor` directory.
 
-- Specific `if err != nil` blocks are skipped if a comment is detected with any of the following: `noeh`, `no eh`, `noerrhance`, or `no errhance`
+- `if err != nil` blocks can be specificed to be skipped if a comment is detected with any of the following: `noeh`, `no eh`, `noerrhance`, or `no errhance`
   ```go
   // ...
   if err != nil {
@@ -88,10 +57,14 @@ func Get(url string) (string, error) {
 
 ## Dependencies
 - `errhance` depends on [goimports](https://pkg.go.dev/golang.org/x/tools/cmd/goimports) and will automatically be downloaded if missing.
-  - `errhance` depends on `goimports` to import the `fmt` package if introduced in a file. `fmt` is used to wrap errors with `fmt.Errorf`.
+  - `goimports` is used to import the `fmt` package if introduced in a file. `fmt` is used to wrap errors with `fmt.Errorf`.
+
+## License
+- This project is released under the [Unlicense](https://unlicense.org).
+- One file, `internal/fmtstr/parse.go`, is copied from an internal package in the Go `x/tools` project and is licensed under a [BSD-style license](internal/fmtstr/LICENSE).
 
 ## Miscellaneous
-- `errhance` can be called from within Neovim by adding the following keymap to your config
+- `errhance` can be called from within Neovim by adding the following keymap to your config:
   ```lua
   vim.keymap.set('n', '<leader>geh',
     ':w<cr>:!errhance --overwrite --filepaths=%:p:.<cr>:let view = winsaveview()<cr>:e!<cr>:call winrestview(view)<cr>',

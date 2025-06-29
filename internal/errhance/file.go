@@ -8,6 +8,8 @@ import (
 	"go/token"
 	"os"
 	"strings"
+
+	"github.com/alexander-bachmann/errhance/internal/fmtstr"
 )
 
 var (
@@ -64,15 +66,12 @@ func Source(cfg SourceConfig, src string) (SourceReport, error) {
 		return report, ErrNoChanges
 	}
 	for {
-		// recompute AST after each replacement,
-		// otherwise node positions will be inaccurate
-		fset := token.NewFileSet()
-		astFile, err := parser.ParseFile(fset, "", src, 0)
-		if err != nil {
-			return report, fmt.Errorf("parser.ParseFile: %w", err)
-		}
 		var ok bool
-		src, ok = enhanceNextErr(cfg, src, astFile)
+		var err error
+		src, ok, err = enhanceNextErr(cfg, src)
+		if err != nil {
+			return report, fmt.Errorf("enhanceNextErr: %w", err)
+		}
 		if ok {
 			report.TotalErrorsEnhanced++
 		} else {
@@ -92,13 +91,19 @@ const (
 	Skip = false
 )
 
-func enhanceNextErr(cfg SourceConfig, src string, file *ast.File) (string, bool) {
+func enhanceNextErr(cfg SourceConfig, src string) (string, bool, error) {
 	var hasEnhanced bool
-	var newErr string
+	var name string
 
+	// recompute AST after each replacement,
+	// otherwise node positions will be inaccurate
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "", src, 0)
+	if err != nil {
+		return src, hasEnhanced, fmt.Errorf("parser.ParseFile: %w", err)
+	}
 	ast.Inspect(file, func(node ast.Node) bool {
-		// exit early after a single enhancement
-		// to recalculate the AST positions
+		// after a single enhancement, exit early to recalculate node positions
 		if hasEnhanced {
 			return Skip
 		}
@@ -106,24 +111,28 @@ func enhanceNextErr(cfg SourceConfig, src string, file *ast.File) (string, bool)
 			return Next
 		}
 		switch n := node.(type) {
-		case *ast.AssignStmt: // err := foo()
-			newErr = generateWrappedErr(*n) // fmt.Errorf("foo: %w", err)
-		case *ast.IfStmt: // if err != nil
-			if containsOmitComment(src[int((*n).Pos())-1 : int((*n).End()-1)]) {
-				return Skip
-			}
-			if !isErrNilCheck(*n) {
+		case *ast.AssignStmt: // err := foo().bar()
+			if !returnsErr(*n) {
 				return Next
 			}
-			// ifStmt with assignStmt is shorthand err != nil syntax
-			// e.g. if err := foo(); err != nil {}
-			switch i := n.Init.(type) {
-			case *ast.AssignStmt:
-				newErr = generateWrappedErr(*i)
+			name = callExprName(*n) // foo.bar
+
+		case *ast.IfStmt: // if err != nil
+			if !hasErrNotEqualNilCond(*n) {
+				return Next
 			}
-			// return err => return fmt.Errorf("foo: %w", err)
+			block := src[int((*n).Pos())-1 : int((*n).End()-1)]
+			if containsOmitComment(block) {
+				return Skip
+			}
+			// AssignStmt within IfStmt indicates shorthand syntax
+			// if err := foo.Bar(); err != nil
+			if i, ok := n.Init.(*ast.AssignStmt); ok {
+				name = callExprName(*i) // foo.Bar
+			}
+			// err => fmt.Errorf("foo.Bar: %w", err)
 			var ok bool
-			src, ok = replaceErr(cfg, src, *n, newErr)
+			src, ok = replaceErr(cfg, src, *n, name)
 			if !ok {
 				break
 			}
@@ -133,14 +142,14 @@ func enhanceNextErr(cfg SourceConfig, src string, file *ast.File) (string, bool)
 		// printNode(src, node)
 		return Next
 	})
-	return src, hasEnhanced
+	return src, hasEnhanced, nil
 }
 
 func replaceErr(cfg SourceConfig, src string, ifStmt ast.IfStmt, newErr string) (string, bool) {
 	if newErr == "" {
 		return src, false
 	}
-	// skip if err value is overwritten before being returned.
+	// skip if err value is overwritten before being returned
 	/*
 		if err != nil {
 			err = doSomething(err)
@@ -153,7 +162,7 @@ func replaceErr(cfg SourceConfig, src string, ifStmt ast.IfStmt, newErr string) 
 			return src, false
 		}
 	}
-	pos, length := returnedErrPosLen(cfg, src, ifStmt)
+	newErr, pos, length := newErrPosLen(cfg, src, ifStmt, newErr)
 	if pos == -1 || length == -1 {
 		return src, false
 	}
@@ -161,14 +170,15 @@ func replaceErr(cfg SourceConfig, src string, ifStmt ast.IfStmt, newErr string) 
 	if src[pos-1:pos+length-1] == newErr {
 		return src, false
 	}
+
 	return src[:pos-1] + newErr + src[pos+length-1:], true
 }
 
-func returnedErrPosLen(cfg SourceConfig, src string, ifStmt ast.IfStmt) (int, int) {
+func newErrPosLen(cfg SourceConfig, src string, ifStmt ast.IfStmt, callFn string) (string, int, int) {
 	pos := -1
 	length := -1
 	if ifStmt.Body == nil {
-		return pos, length
+		return "", pos, length
 	}
 	for _, stmt := range ifStmt.Body.List {
 		returnStmt, ok := stmt.(*ast.ReturnStmt)
@@ -179,46 +189,119 @@ func returnedErrPosLen(cfg SourceConfig, src string, ifStmt ast.IfStmt) (int, in
 			continue
 		}
 		switch n := returnStmt.Results[len(returnStmt.Results)-1].(type) {
-		case *ast.Ident: // default case: return err
+		case *ast.Ident:
 			if (*n).Name == "err" {
+				fmtErrorf := FmtErrorf{Args: []string{"err"}}
+				newErr := fmtErrorf.Errhance(callFn)
 				pos = int((*n).Pos())
 				length = 3
-				return pos, length
+				return newErr, pos, length
 			}
-		case *ast.CallExpr: // requires an overwrite flag: return fmt.Errorf
-			if isValidFmtErrorf(cfg, src, *n) {
+		case *ast.CallExpr:
+			if cfg.overwrite && isFmtErrorf(*n) {
+				fmtErrorf, err := ParseFmtErrorf(src, *n)
+				if err != nil {
+					// TODO: consider passing error up
+					return "", pos, length
+				}
+				newErr := fmtErrorf.Errhance(callFn)
 				pos = int((*n).Pos())
 				length = int((*n).End() - (*n).Pos())
-				return pos, length
+				return newErr, pos, length
 			}
 		}
 	}
-	return pos, length
+	return "", pos, length
 }
 
-func isValidFmtErrorf(cfg SourceConfig, src string, callExpr ast.CallExpr) bool {
-	// skip unless requesting either --overwrite or --force-overwrite
-	if !cfg.overwrite && !cfg.forceOverwrite {
-		return false
-	}
+func nodeStr(src string, node ast.Node) string {
+	return src[node.Pos()-1 : node.End()-1]
+}
+
+type FmtErrorf struct {
+	Format     string
+	Directives []string
+	Args       []string
+}
+
+func ParseFmtErrorf(src string, callExpr ast.CallExpr) (FmtErrorf, error) {
 	if !isFmtErrorf(callExpr) {
-		return false
+		return FmtErrorf{}, fmt.Errorf("call expr is not fmt.Errorf")
 	}
-	// if not forcefully overwriting, check if there is:
-	if !cfg.forceOverwrite {
-		var args []string
-		for _, arg := range callExpr.Args {
-			args = append(args, src[arg.Pos()-1:arg.End()-1])
+	if len(callExpr.Args) == 0 {
+		return FmtErrorf{}, fmt.Errorf("call expr has no args")
+	}
+	format := nodeStr(src, callExpr.Args[0])
+	// throw away error since it's okay if directives are missing
+	directives, _ := parseDirectives(format)
+	var args []string
+	for i := 1; i < len(callExpr.Args); i++ {
+		args = append(args, nodeStr(src, callExpr.Args[i]))
+	}
+	fmtErrorf := FmtErrorf{
+		Format:     format,
+		Directives: directives,
+		Args:       args,
+	}
+	return fmtErrorf, nil
+}
+
+// e.g. io.ReadAll => fmt.Errorf("io.ReadAll: %w: %s", err, url)
+func (f *FmtErrorf) Errhance(callFn string) string {
+	f.tryDirectivesSupplement()
+	f.tryErrorDirectivesUpgrade()
+	f.Format = strings.Join(append([]string{callFn}, f.Directives...), ": ")
+	return fmt.Sprintf(`fmt.Errorf(%s)`,
+		strings.Join(append([]string{`"` + f.Format + `"`}, f.Args...), ", "))
+}
+
+func parseDirectives(str string) ([]string, error) {
+	ops, err := fmtstr.Parse(str, -1)
+	if err != nil {
+		return nil, err
+	}
+	var dirs []string
+	for _, op := range ops {
+		if op == nil {
+			continue
 		}
-		// 1. more than one format argument: fmt.Errorf("failed: %s: %w", str, err)
-		// > 2 because the format string is an arg too
-		if len(args) > 2 {
-			return false
+		// %% isn't a directive, it's an escape to print %
+		if op.Text == "%%" {
+			continue
 		}
-		// 2. sentinel errors: fmt.Errorf("failed: %w", ErrNotFound)
-		if len(args) == 2 && args[1] != "err" {
-			return false
+		dirs = append(dirs, op.Text)
+	}
+	return dirs, nil
+}
+
+func (f *FmtErrorf) tryDirectivesSupplement() {
+	if len(f.Directives) == len(f.Args) {
+		return
+	}
+	f.Directives = []string{}
+	for _, arg := range f.Args {
+		if probablyErrorArg(arg) {
+			f.Directives = append(f.Directives, "%w")
+		} else {
+			f.Directives = append(f.Directives, "%v")
 		}
 	}
-	return true
+}
+
+func (f *FmtErrorf) tryErrorDirectivesUpgrade() {
+	if len(f.Directives) != len(f.Args) {
+		return
+	}
+	for i, arg := range f.Args {
+		if probablyErrorArg(arg) {
+			if f.Directives[i] == "%v" {
+				f.Directives[i] = "%w"
+			}
+		}
+	}
+}
+
+func probablyErrorArg(arg string) bool {
+	lowerArg := strings.ToLower(arg)
+	return strings.HasPrefix(lowerArg, "err") || strings.HasSuffix(lowerArg, "err")
 }

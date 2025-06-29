@@ -17,18 +17,16 @@ func NewDirectoryConfig(fwCfg fastwalk.Config, opts ...DirectoryOpt) DirectoryCo
 }
 
 type SourceConfig struct {
-	overwrite      bool
-	forceOverwrite bool
-	generated      bool
+	overwrite bool
+	generated bool
 }
 
 type SourceOpt func(*SourceConfig)
 
 func NewSourceConfig(opts ...SourceOpt) SourceConfig {
 	cfg := SourceConfig{
-		overwrite:      false,
-		forceOverwrite: false,
-		generated:      false,
+		overwrite: false,
+		generated: false,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -36,6 +34,5 @@ func NewSourceConfig(opts ...SourceOpt) SourceConfig {
 	return cfg
 }
 
-func WithOverwrite(b bool) SourceOpt      { return func(cfg *SourceConfig) { cfg.overwrite = b } }
-func WithForceOverwrite(b bool) SourceOpt { return func(cfg *SourceConfig) { cfg.forceOverwrite = b } }
-func WithGenerated(b bool) SourceOpt      { return func(cfg *SourceConfig) { cfg.generated = b } }
+func WithOverwrite(b bool) SourceOpt { return func(cfg *SourceConfig) { cfg.overwrite = b } }
+func WithGenerated(b bool) SourceOpt { return func(cfg *SourceConfig) { cfg.generated = b } }
