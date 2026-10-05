@@ -19,6 +19,7 @@ func NewDirectoryConfig(fwCfg fastwalk.Config, opts ...DirectoryOpt) DirectoryCo
 type SourceConfig struct {
 	overwrite bool
 	generated bool
+	dryRun    bool
 	// Keys are contractFunctionKey or contractLiteralKey; values explain skips.
 	blockedFunctions map[string]string
 }
@@ -38,3 +39,7 @@ func NewSourceConfig(opts ...SourceOpt) SourceConfig {
 
 func WithOverwrite(b bool) SourceOpt { return func(cfg *SourceConfig) { cfg.overwrite = b } }
 func WithGenerated(b bool) SourceOpt { return func(cfg *SourceConfig) { cfg.generated = b } }
+
+// WithDryRun validates disk transformations and reports proposed output without
+// replacing files. Source is already side-effect free and ignores this option.
+func WithDryRun(b bool) SourceOpt { return func(cfg *SourceConfig) { cfg.dryRun = b } }

@@ -335,15 +335,17 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 	if len(overlay) == 0 {
 		return report, reports, ctx.Err()
 	}
-	// Check metadata support for every edit before the first replacement.
-	for path := range overlay {
-		original := snapshots[path]
-		metadata, err := readFileMetadata(path, original.info)
-		if err != nil {
-			return report, reports, err
+	// Preview checks source validity, not replacement permissions or metadata.
+	if !cfg.dryRun {
+		for path := range overlay {
+			original := snapshots[path]
+			metadata, err := readFileMetadata(path, original.info)
+			if err != nil {
+				return report, reports, err
+			}
+			original.metadata = &metadata
+			snapshots[path] = original
 		}
-		original.metadata = &metadata
-		snapshots[path] = original
 	}
 	// Validate the entire loaded set, including unedited files and test variants.
 	for _, root := range roots {
@@ -367,6 +369,21 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 		if err := verifySnapshot(path, original); err != nil {
 			return report, reports, err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return report, reports, err
+	}
+	if cfg.dryRun {
+		for _, path := range paths {
+			if _, changed := overlay[path]; !changed {
+				continue
+			}
+			sr := reports[path]
+			report.Changes = append(report.Changes, FileChange{Path: path, Before: sr.Before, After: sr.After})
+			report.ProposedFilesModified++
+			report.ProposedErrorsEnhanced += sr.TotalErrorsEnhanced
+		}
+		return report, reports, nil
 	}
 	for _, path := range paths {
 		data, changed := overlay[path]

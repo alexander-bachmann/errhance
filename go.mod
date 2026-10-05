@@ -3,6 +3,7 @@ module github.com/alexander-bachmann/errhance
 go 1.22.5
 
 require (
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/spf13/cobra v1.9.1
 	golang.org/x/sys v0.30.0
 	golang.org/x/tools v0.30.0

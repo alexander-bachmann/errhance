@@ -18,6 +18,26 @@ go install github.com/alexander-bachmann/errhance@latest
   }
   ```
 
+## Preview Changes
+
+Run from the project directory:
+
+```bash
+errhance --dry-run
+# 2 files would be modified, 3 errors would be enhanced
+
+errhance --diff > changes.patch
+errhance --diff --filepaths=foo.go,bar.go
+```
+
+`--dry-run` analyzes and validates proposed changes without writing source files.
+`--diff` implies dry-run, even with `--dry-run=false`. It writes only a unified
+diff to stdout, with project-relative `a/` and `b/` paths; summaries and
+diagnostics go to stderr. No changes means an empty diff and success. Analysis
+or validation failure returns a nonzero exit status without emitting a diff.
+Preview validates source changes, but does not test replacement permissions or
+access-metadata preservation. A later write run can still fail those checks.
+
 ## Examples:
 ### Kubernetes
 ```bash

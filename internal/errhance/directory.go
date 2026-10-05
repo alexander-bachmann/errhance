@@ -14,6 +14,17 @@ type DirectoryReport struct {
 	TotalFilesModified  int
 	TotalErrorsEnhanced int
 	Diagnostics         []Diagnostic
+	// Preview fields are populated only after successful dry-run validation.
+	ProposedFilesModified  int
+	ProposedErrorsEnhanced int
+	Changes                []FileChange
+}
+
+// FileChange contains the complete, validated before/after source for a preview.
+type FileChange struct {
+	Path   string
+	Before string
+	After  string
 }
 
 func LocalDirectory(dirCfg DirectoryConfig, srcCfg SourceConfig) (DirectoryReport, error) {
