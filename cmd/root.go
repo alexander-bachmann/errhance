@@ -56,6 +56,10 @@ if err := foo.Bar(); err != nil {
 			if err != nil {
 				return err
 			}
+			verbose, err := cmd.Flags().GetBool("verbose")
+			if err != nil {
+				return err
+			}
 			dryRun = dryRun || diff
 			if diff {
 				cmd.SilenceUsage = true
@@ -70,6 +74,7 @@ if err := foo.Bar(); err != nil {
 					emptyWorkFunc, // overwritten in errhance.LocalDirectory
 					fastwalk.WithOnlyExtensions([]string{".go"}),
 					fastwalk.WithSkipDirectories(skipDirectories),
+					fastwalk.WithSkipUnderscoreDirectories(true),
 					fastwalk.WithOnlyFilepaths(filepaths),
 				))
 			srcCfg := errhance.NewSourceConfig(
@@ -78,16 +83,7 @@ if err := foo.Bar(); err != nil {
 				errhance.WithDryRun(dryRun),
 			)
 			dirReport, err := errhance.LocalDirectoryContext(cmd.Context(), dirCfg, srcCfg)
-			var outputErr error
-			for _, diagnostic := range dirReport.Diagnostics {
-				var writeErr error
-				if diagnostic.Position.IsValid() || diagnostic.Position.Filename != "" {
-					_, writeErr = fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", diagnostic.Position, diagnostic.Message)
-				} else {
-					_, writeErr = fmt.Fprintln(cmd.ErrOrStderr(), diagnostic.Message)
-				}
-				outputErr = errors.Join(outputErr, writeErr)
-			}
+			outputErr := writeDiagnostics(cmd.ErrOrStderr(), dirReport.Diagnostics, verbose)
 			if diff && err == nil {
 				root, cwdErr := os.Getwd()
 				if cwdErr != nil {
@@ -128,6 +124,7 @@ if err := foo.Bar(); err != nil {
 	rootCmd.Flags().StringSlice("filepaths", []string{}, "enhances specific filepaths")
 	rootCmd.Flags().Bool("dry-run", false, "validate and report proposed changes without writing source files")
 	rootCmd.Flags().Bool("diff", false, "print a unified diff without writing source files (implies --dry-run)")
+	rootCmd.Flags().Bool("verbose", false, "print every diagnostic with its full position instead of grouping by message")
 	return rootCmd
 }
 

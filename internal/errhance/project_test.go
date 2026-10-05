@@ -16,12 +16,12 @@ import (
 
 func projectFixture(t *testing.T, files map[string]string) string {
 	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skip("atomic disk replacement currently supported only on Linux")
-	}
 	t.Setenv("GOWORK", "off")
 	t.Setenv("GOFLAGS", "")
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	files["go.mod"] = "module example.com/project\n\ngo 1.22.5\n"
 	for name, text := range files {
 		path := filepath.Join(root, name)
@@ -60,6 +60,14 @@ import "example.com/project"; func helper() error { e := p.Source(); if e != nil
 		"sub/sub.go": `package sub
 import "example.com/project"; func F() error { e := p.Source(); if e != nil { return e }; return nil }`,
 	})
+	before := make(map[string]os.FileMode)
+	for _, name := range []string{"f.go", "p_test.go", "external_test.go", "sub/sub.go"} {
+		info, err := os.Stat(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[name] = info.Mode().Perm()
+	}
 	report, err := LocalDirectory(projectDirectory(root), NewSourceConfig())
 	if err != nil || report.TotalFilesModified != 4 || report.TotalErrorsEnhanced != 4 {
 		t.Fatalf("report=%+v, error=%v", report, err)
@@ -71,7 +79,7 @@ import "example.com/project"; func F() error { e := p.Source(); if e != nil { re
 			t.Errorf("imports/rewrite missing in %s: %s", name, data)
 		}
 		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm() != 0640 {
+		if err != nil || info.Mode().Perm() != before[name] {
 			t.Fatalf("permissions changed: %v, %v", info, err)
 		}
 	}
@@ -160,6 +168,15 @@ func TestProjectPreflightNoWrites(t *testing.T) {
 			before, _ := os.Stat(path)
 			report, err := LocalDirectory(projectDirectory(root), NewSourceConfig())
 			after, _ := os.Stat(path)
+			if bad == "sub/bad.go" {
+				if err != nil || report.TotalFilesModified != 1 || len(report.Diagnostics) == 0 {
+					t.Fatalf("independent good package not processed: %+v, %v", report, err)
+				}
+				if readProjectFile(t, filepath.Join(root, bad)) != "package p; var _ = missing\n" {
+					t.Fatal("invalid package changed")
+				}
+				return
+			}
 			if err == nil || report.TotalFilesModified != 0 || len(report.Diagnostics) == 0 {
 				t.Fatalf("bad package accepted: %+v, %v", report, err)
 			}
@@ -388,6 +405,9 @@ func TestAtomicReplace(t *testing.T) {
 }
 
 func TestAtomicReplaceWriteFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Chmod does not control directory write access on Windows")
+	}
 	root := projectFixture(t, map[string]string{"p.go": validSource})
 	path := filepath.Join(root, "p.go")
 	info, err := safeFile(path)
@@ -413,9 +433,6 @@ func TestAtomicReplaceWriteFailure(t *testing.T) {
 }
 
 func TestProjectActiveCgo(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("disk replacement supported on Linux")
-	}
 	if _, err := exec.LookPath("cc"); err != nil {
 		t.Skip("C compiler unavailable")
 	}
@@ -427,8 +444,15 @@ func TestProjectActiveCgo(t *testing.T) {
 	path := filepath.Join(root, "cgo.go")
 	before := readProjectFile(t, path)
 	source, err := LocalFile(NewSourceConfig(), path)
-	if !errors.Is(err, ErrNoChanges) || !source.Skipped || len(source.Diagnostics) == 0 || !strings.Contains(source.Diagnostics[0].Message, "cgo source mapping") {
+	if err == nil || errors.Is(err, ErrNoChanges) || !source.Skipped || len(source.Diagnostics) == 0 || !strings.Contains(source.Diagnostics[0].Message, "cgo source mapping") {
 		t.Fatalf("cgo file misdiagnosed: %+v, %v", source, err)
+	}
+	explicit := projectDirectory(root, fastwalk.WithOnlyFilepaths([]string{path, filepath.Join(root, "plain.go")}))
+	if report, err := LocalDirectory(explicit, NewSourceConfig()); err == nil || report.TotalFilesModified != 0 {
+		t.Fatalf("unsupported explicit target did not fail closed: %+v, %v", report, err)
+	}
+	if readProjectFile(t, filepath.Join(root, "plain.go")) != validSource {
+		t.Fatal("explicit cgo selection changed a sibling")
 	}
 	report, err := LocalDirectory(projectDirectory(root), NewSourceConfig())
 	if err != nil || report.TotalFilesModified != 1 {

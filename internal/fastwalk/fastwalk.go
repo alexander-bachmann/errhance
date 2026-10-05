@@ -45,12 +45,27 @@ func WalkContext(ctx context.Context, cfg Config) error {
 		}
 	}
 	paths := make(map[string]struct{}, len(cfg.onlyFilepaths))
+	ancestors := make(map[string]struct{})
 	for path := range cfg.onlyFilepaths {
 		path, err := filepath.Abs(path)
 		if err != nil {
 			return fmt.Errorf("fastwalk: filter path: %w", err)
 		}
 		paths[path] = struct{}{}
+		rel, err := filepath.Rel(root, path)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		// Include the target itself so selected directories can receive callbacks.
+		for dir := path; ; dir = filepath.Dir(dir) {
+			if _, exists := ancestors[dir]; exists {
+				break
+			}
+			ancestors[dir] = struct{}{}
+			if dir == root {
+				break
+			}
+		}
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -97,6 +112,14 @@ func WalkContext(ctx context.Context, cfg Config) error {
 			return err
 		}
 		if d.IsDir() {
+			if len(paths) > 0 {
+				if _, ok := ancestors[path]; !ok {
+					return filepath.SkipDir
+				}
+			}
+			if path != root && cfg.skipUnderscoreDirs && strings.HasPrefix(d.Name(), "_") {
+				return filepath.SkipDir
+			}
 			if _, skip := cfg.skipDirectories[d.Name()]; skip {
 				return filepath.SkipDir
 			}
@@ -106,6 +129,11 @@ func WalkContext(ctx context.Context, cfg Config) error {
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if len(paths) > 0 {
+			if _, ok := paths[path]; !ok {
+				return nil
+			}
 		}
 		if d.IsDir() {
 			if !cfg.includeDirectories {
@@ -126,11 +154,6 @@ func WalkContext(ctx context.Context, cfg Config) error {
 		}
 		if len(cfg.onlyExtensions) > 0 {
 			if _, ok := cfg.onlyExtensions[filepath.Ext(path)]; !ok {
-				return nil
-			}
-		}
-		if len(paths) > 0 {
-			if _, ok := paths[path]; !ok {
 				return nil
 			}
 		}

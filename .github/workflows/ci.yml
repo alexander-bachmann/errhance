@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Go ${{ matrix.go }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ['1.22.5', stable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - run: go mod download
+      - run: go test -count=1 -timeout=15m ./...
+
+  race-and-vet:
+    name: Race and vet (Linux, stable Go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go mod download
+      - run: go vet ./...
+      - run: go test -race -count=1 -timeout=20m ./...
+
+  fuzz:
+    name: Fuzz smoke tests (Linux, stable Go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go mod download
+      - run: go test ./internal/errhance -run '^$' -fuzz '^FuzzSource$' -fuzztime=20s -parallel=2
+      - run: go test ./internal/errhance -run '^$' -fuzz '^FuzzSourceStructured$' -fuzztime=20s -parallel=2
+      - run: go test ./cmd -run '^$' -fuzz '^FuzzWriteDiff$' -fuzztime=20s -parallel=2

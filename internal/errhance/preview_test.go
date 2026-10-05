@@ -90,7 +90,7 @@ func TestPreviewFailureHasNoChanges(t *testing.T) {
 		t.Run(map[bool]string{false: "cancelled", true: "invalid package"}[invalid], func(t *testing.T) {
 			files := map[string]string{"p.go": validSource}
 			if invalid {
-				files["broken/broken.go"] = "package broken; var _ = missing"
+				files["broken.go"] = "package p; var _ = missing"
 			}
 			root := projectFixture(t, files)
 			ctx, cancel := context.WithCancel(context.Background())

@@ -30,7 +30,7 @@ func TestRewriteTyped(t *testing.T) {
 		{name: "branch merge", source: `func f(b bool) error { e := source(); if b { e = other() }; if e != nil { return e }; return nil }`, diagnostic: "unknown error origin"},
 		{name: "same branch origin", source: `func f(b bool) error { var e error; if b { e = source() } else { e = source() }; if e != nil { return e }; return nil }`, count: 1, want: `Errorf("source: %w", e)`},
 		{name: "captured outer", source: `func f() error { e := source(); g := func() { e = nil }; g(); if e != nil { return e }; return nil }`, diagnostic: "captured error"},
-		{name: "RHS callback reads existing error", source: `func invoke(cb func()) error { cb(); return source() }; func f() error { err := source(); err = invoke(func() { _ = err }); if err != nil { return err }; return nil }`, diagnostic: "captured error"},
+		{name: "RHS callback reads existing error", source: `func invoke(cb func()) error { cb(); return source() }; func f() error { err := source(); err = invoke(func() { _ = err }); if err != nil { return err }; return nil }`, count: 1, want: `Errorf("invoke: %w", err)`},
 		{name: "guard callback mutation", source: `func f() error { err := source(); if err != nil { func() { err = nil }(); return err }; return nil }`, diagnostic: "captured error"},
 		{name: "nested immediate callbacks", source: `func f() error { err := source(); if err != nil { func() { func() { err = nil }() }(); return err }; return nil }`, diagnostic: "captured error"},
 		{name: "deferred named result", source: `func f() (err error) { defer func() { err = other() }(); err = source(); if err != nil { return err }; return nil }`, diagnostic: "named result: captured error"},
@@ -49,14 +49,16 @@ func TestRewriteTyped(t *testing.T) {
 		{name: "noeh", source: "func f() error { e := source(); if e != nil { // noeh\n return e }; return nil }"},
 		{name: "noeh sibling", source: "func f() error { e := source(); if e != nil { // noeh\n return e }; e = other();\n if e != nil { return e }; return nil }", count: 1, want: `Errorf("other: %w", e)`},
 		{name: "noeh string ignored", source: `func f() error { _ = "// noeh"; e := source(); if e != nil { return e }; return nil }`, count: 1, want: `Errorf("source: %w", e)`},
-		{name: "loop invalidation", source: `func f(b bool) error { e := source(); for b { e = other(); if e != nil { return e } }; if e != nil { return e }; return nil }`, diagnostic: "unsupported control flow"},
-		{name: "goto", source: `func f() error { e := source(); goto done; done: if e != nil { return e }; return nil }`, diagnostic: "unsupported control flow"},
+		{name: "loop invalidation", source: `func f(b bool) error { e := source(); for b { e = other(); if e != nil { return e } }; if e != nil { return e }; return nil }`, count: 1, want: `Errorf("other: %w", e)`, diagnostic: "unknown error origin"},
+		{name: "goto", source: `func f() error { e := source(); goto done; done: if e != nil { return e }; return nil }`, diagnostic: "goto control flow is unsupported"},
 		{name: "named return", source: `func f() (e error) { e = source(); if e != nil { return }; return }`, diagnostic: "implicit or tuple"},
 		{name: "unique alias", source: `var errhancefmt int; func f() error { e := source(); if e != nil { return e }; return nil }`, count: 1, want: `errhancefmt2.Errorf("source: %w", e)`},
 		{name: "reader caller", source: `type reader struct{}; func (reader) Read([]byte) (int, error) { return 0, source() }; func f() error { _, e := (reader{}).Read(nil); if e != nil { return e }; return nil }`, diagnostic: "sentinel"},
 		{name: "reader implementation", source: `type reader struct{}; func (reader) ReadByte() (byte, error) { e := source(); if e != nil { return 0, e }; return 0, nil }`, diagnostic: "sentinel"},
 		{name: "indirect reader", source: `type reader struct{}; func (reader) ReadRune() (rune, int, error) { return 0, 0, source() }; func f() error { read := (reader{}).ReadRune; _, _, e := read(); if e != nil { return e }; return nil }`, diagnostic: "indirect call"},
 		{name: "function named Read", source: `func Read() error { return source() }; func f() error { e := Read(); if e != nil { return e }; return nil }`, count: 1, want: `Errorf("Read: %w", e)`},
+		{name: "non-reader method caller", source: `type reader struct{}; func (reader) Read(string) error { return source() }; func f() error { e := (reader{}).Read(""); if e != nil { return e }; return nil }`, count: 1, want: `Errorf("(reader{}).Read: %w", e)`},
+		{name: "non-reader method implementation", source: `type reader struct{}; func (reader) ReadByte(int) error { e := source(); if e != nil { return e }; return nil }`, count: 1, want: `Errorf("source: %w", e)`},
 	}
 	imp := importer.Default()
 	for _, tt := range tests {

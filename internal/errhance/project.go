@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/imports"
 )
@@ -30,6 +32,7 @@ type projectLoad struct {
 	patterns []string
 	packages []*packages.Package
 	config   *packages.Config
+	valid    map[string]bool
 }
 
 // safeFile deliberately rejects hard links as well as symlinks: replacing one
@@ -137,9 +140,19 @@ func atomicReplace(ctx context.Context, path string, original projectSnapshot, d
 func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, explicit map[string]bool) (DirectoryReport, map[string]SourceReport, error) {
 	var report DirectoryReport
 	reports := make(map[string]SourceReport)
+	validated := false
+	defer func() {
+		if !validated {
+			for path, sr := range reports {
+				sr.After, sr.TotalErrorsEnhanced = sr.Before, 0
+				reports[path] = sr
+			}
+		}
+	}()
 	snapshots := make(map[string]projectSnapshot)
 	groups := make(map[string]*projectLoad)
 	selected := make(map[string]bool)
+	unavailable := make(map[string]string)
 	sort.Strings(paths)
 	for _, path := range paths {
 		if err := ctx.Err(); err != nil {
@@ -192,9 +205,99 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 	if len(paths) == 0 {
 		return report, reports, ctx.Err()
 	}
+	// On-save no-ops need no package driver or dependency type checking. This
+	// deliberately overestimates candidates; any possible edit takes the typed path.
+	if len(paths) == 1 && explicit[paths[0]] {
+		path := paths[0]
+		candidate, err := hasRewriteCandidate(reports[path].Before, cfg)
+		if err != nil {
+			return report, reports, err
+		}
+		if !candidate {
+			file, _ := parser.ParseFile(token.NewFileSet(), path, snapshots[path].data, parser.PackageClauseOnly|parser.ParseComments)
+			sr := reports[path]
+			sr.Skipped = !cfg.generated && file != nil && ast.IsGenerated(file)
+			reports[path] = sr
+			return report, reports, ctx.Err()
+		}
+	}
+	// Query Go once per module, then share one load across actual workspace
+	// members. Never silently opt unlisted modules out of an active workspace.
+	workspaces := make(map[string]map[string]bool)
+	consolidated := make(map[string]*projectLoad)
+	var moduleRoots []string
+	for root := range groups {
+		moduleRoots = append(moduleRoots, root)
+	}
+	sort.Strings(moduleRoots)
+	for _, root := range moduleRoots {
+		group := groups[root]
+		loadCfg, err := projectLoadConfig(ctx, root)
+		if err != nil {
+			return report, reports, err
+		}
+		group.config = loadCfg
+		key := root
+		for _, env := range loadCfg.Env {
+			if !strings.HasPrefix(env, "GOWORK=") {
+				continue
+			}
+			work := strings.TrimPrefix(env, "GOWORK=")
+			if work == "" || work == "off" {
+				continue
+			}
+			members, ok := workspaces[work]
+			if !ok {
+				data, err := os.ReadFile(work)
+				if err != nil {
+					return report, reports, err
+				}
+				parsed, err := modfile.ParseWork(work, data, nil)
+				if err != nil {
+					return report, reports, err
+				}
+				members = make(map[string]bool)
+				for _, use := range parsed.Use {
+					dir := use.Path
+					if !filepath.IsAbs(dir) {
+						dir = filepath.Join(filepath.Dir(work), dir)
+					}
+					members[filepath.Clean(dir)] = true
+				}
+				workspaces[work] = members
+			}
+			if !members[root] {
+				for _, pattern := range group.patterns {
+					dir := filepath.Join(root, filepath.FromSlash(pattern))
+					for _, path := range paths {
+						if filepath.Dir(path) == dir {
+							unavailable[path] = fmt.Sprintf("module %s is not listed in active workspace %s; file left unchanged", root, work)
+						}
+					}
+				}
+				key = ""
+			} else {
+				key = work
+			}
+			break
+		}
+		if key == "" {
+			continue
+		}
+		target := consolidated[key]
+		if target == nil {
+			target = &projectLoad{dir: root, config: loadCfg}
+			consolidated[key] = target
+		}
+		for _, pattern := range group.patterns {
+			target.patterns = append(target.patterns, filepath.Join(root, filepath.FromSlash(pattern)))
+		}
+	}
+	groups = consolidated
 	var roots []string
 	for root := range groups {
 		roots = append(roots, root)
+		sort.Strings(groups[root].patterns)
 	}
 	sort.Strings(roots)
 	var mu sync.Mutex
@@ -216,26 +319,29 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 			}
 			snapshots[filename] = projectSnapshot{data: append([]byte(nil), src...), info: info}
 		}
-		return parser.ParseFile(fset, filename, src, parser.ParseComments|parser.AllErrors)
+		return parser.ParseFile(fset, filename, src, parser.ParseComments|parser.AllErrors|parser.SkipObjectResolution)
 	}
-	var preflightErr error
+	broken := len(unavailable) != 0
 	active := make(map[string]bool)
 	listed := make(map[string]bool)
 	for _, root := range roots {
 		group := groups[root]
-		loadCfg, err := projectLoadConfig(ctx, group.dir)
-		if err != nil {
-			return report, reports, err
-		}
-		group.config = loadCfg
-		parseCfg := *loadCfg
+		parseCfg := *group.config
 		parseCfg.ParseFile = parse
 		pkgs, err := packages.Load(&parseCfg, group.patterns...)
 		if ctx.Err() != nil {
 			return report, reports, ctx.Err()
 		}
 		if err != nil {
-			return report, reports, err
+			broken = true
+			for _, path := range paths {
+				for _, pattern := range group.patterns {
+					if filepath.Dir(path) == pattern {
+						unavailable[path] = fmt.Sprintf("package load failed: %v; file left unchanged", err)
+					}
+				}
+			}
+			continue
 		}
 		group.packages = pkgs
 		// Prefer augmented test packages so alias selection sees test-only names.
@@ -243,11 +349,25 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 			return len(group.packages[i].Syntax) > len(group.packages[j].Syntax)
 		})
 		if err := projectErrors(pkgs, &report); err != nil {
-			preflightErr = err
+			broken = true
 		}
+		group.valid = make(map[string]bool)
 		for _, pkg := range pkgs {
+			valid := projectPackageValid(pkg)
+			if valid {
+				group.valid[pkg.ID] = true
+			}
 			for _, path := range pkg.GoFiles {
 				listed[path] = true
+				if !valid {
+					broken = true
+					unavailable[path] = fmt.Sprintf("package %s or its dependencies failed typechecking; file left unchanged", pkg.ID)
+				}
+			}
+			for _, path := range pkg.CompiledGoFiles {
+				if !valid {
+					unavailable[path] = fmt.Sprintf("package %s or its dependencies failed typechecking; file left unchanged", pkg.ID)
+				}
 			}
 			for _, file := range pkg.Syntax {
 				active[pkg.Fset.PositionFor(file.Pos(), false).Filename] = true
@@ -255,8 +375,9 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 		}
 	}
 	var excluded bool
+	usable := 0
 	for _, path := range paths {
-		if !active[path] {
+		if !active[path] || unavailable[path] != "" {
 			message := "file excluded from the active build configuration"
 			if listed[path] {
 				message = "active source mapping is unsupported; file left unchanged"
@@ -268,26 +389,35 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 						}
 					}
 				}
-			} else if preflightErr != nil {
+			} else if broken {
 				message += " or unavailable after package errors"
+			}
+			if unavailable[path] != "" {
+				message = unavailable[path]
 			}
 			d := Diagnostic{Position: token.Position{Filename: path}, Message: message}
 			report.Diagnostics = append(report.Diagnostics, d)
 			sr := reports[path]
 			sr.Skipped, sr.Diagnostics = true, []Diagnostic{d}
 			reports[path] = sr
-			excluded = excluded || (explicit[path] && !listed[path])
+			excluded = excluded || explicit[path]
+		} else {
+			usable++
 		}
 	}
-	if preflightErr != nil {
-		return report, reports, preflightErr
-	}
 	if excluded {
-		return report, reports, fmt.Errorf("explicitly selected file excluded from the active build configuration")
+		return report, reports, fmt.Errorf("explicitly selected file unavailable in the active build configuration or failed typechecking")
+	}
+	if usable == 0 && broken {
+		return report, reports, fmt.Errorf("no selected files in loadable, type-correct packages")
 	}
 	var loaded []*packages.Package
 	for _, root := range roots {
-		loaded = append(loaded, groups[root].packages...)
+		for _, pkg := range groups[root].packages {
+			if groups[root].valid[pkg.ID] {
+				loaded = append(loaded, pkg)
+			}
+		}
 	}
 	blocked, contractDiagnostics := projectContracts(loaded)
 	cfg.blockedFunctions = blocked
@@ -302,9 +432,12 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 	overlay := make(map[string][]byte)
 	for _, root := range roots {
 		for _, pkg := range groups[root].packages {
+			if !groups[root].valid[pkg.ID] {
+				continue
+			}
 			for _, file := range pkg.Syntax {
 				path := pkg.Fset.PositionFor(file.Pos(), false).Filename
-				if !selected[path] || matched[path] {
+				if !selected[path] || matched[path] || unavailable[path] != "" {
 					continue
 				}
 				matched[path] = true
@@ -332,6 +465,15 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 			}
 		}
 	}
+	// Validation reuses original imports and ASTs, but needs no expression/use maps.
+	// Drop those large maps before checking output bodies.
+	loaded = nil
+	for _, group := range groups {
+		packages.Visit(group.packages, func(pkg *packages.Package) bool {
+			pkg.TypesInfo = nil
+			return true
+		}, nil)
+	}
 	if len(overlay) == 0 {
 		return report, reports, ctx.Err()
 	}
@@ -347,9 +489,31 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 			snapshots[path] = original
 		}
 	}
-	// Validate the entire loaded set, including unedited files and test variants.
+	// Recheck changed bodies in memory. Unchanged declarations ensure that original
+	// dependency types remain valid; unusual source mappings use loader validation.
 	for _, root := range roots {
 		group := groups[root]
+		if len(group.valid) == 0 {
+			continue
+		}
+		groupOverlay := make(map[string][]byte)
+		for _, pkg := range group.packages {
+			for _, path := range pkg.GoFiles {
+				if data, ok := overlay[path]; ok {
+					groupOverlay[path] = data
+				}
+			}
+		}
+		var validationReport DirectoryReport
+		err := validateRewrites(ctx, group.packages, group.valid, groupOverlay, &validationReport)
+		group.packages = nil
+		if !errors.Is(err, errRewriteValidationUnsupported) {
+			report.Diagnostics = append(report.Diagnostics, validationReport.Diagnostics...)
+			if err != nil {
+				return report, reports, fmt.Errorf("transformed packages: %w", err)
+			}
+			continue
+		}
 		loadCfg := *group.config
 		loadCfg.Overlay = overlay
 		pkgs, err := packages.Load(&loadCfg, group.patterns...)
@@ -359,7 +523,7 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 		if err != nil {
 			return report, reports, err
 		}
-		if err := projectErrors(pkgs, &report); err != nil {
+		if err := validateProjectRoots(pkgs, group.valid, &report); err != nil {
 			return report, reports, fmt.Errorf("transformed packages: %w", err)
 		}
 	}
@@ -374,6 +538,7 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 		return report, reports, err
 	}
 	if cfg.dryRun {
+		validated = true
 		for _, path := range paths {
 			if _, changed := overlay[path]; !changed {
 				continue
@@ -385,6 +550,7 @@ func rewriteProject(ctx context.Context, cfg SourceConfig, paths []string, expli
 		}
 		return report, reports, nil
 	}
+	validated = true
 	for _, path := range paths {
 		data, changed := overlay[path]
 		if !changed {
@@ -428,6 +594,18 @@ func projectLoadConfig(ctx context.Context, dir string) (*packages.Config, error
 	if err := json.Unmarshal(output, &env); err != nil {
 		return nil, err
 	}
+	// Pin the effective workspace for both initial and overlay loads. Remove
+	// inherited entries so grouping sees exactly the value returned by Go.
+	var buildEnv []string
+	for _, value := range cfg.Env {
+		if !strings.HasPrefix(value, "GOWORK=") {
+			buildEnv = append(buildEnv, value)
+		}
+	}
+	if env.GOWORK == "" {
+		env.GOWORK = "off"
+	}
+	cfg.Env = append(buildEnv, "GOWORK="+env.GOWORK)
 	mode := ""
 	// GOFLAGS uses Go's quoted-word syntax, not shell escaping. Quotes may
 	// surround a whole flag, including values containing whitespace.
@@ -465,6 +643,38 @@ func projectLoadConfig(ctx context.Context, dir string) (*packages.Config, error
 	}
 	cfg.BuildFlags = []string{mode}
 	return cfg, nil
+}
+
+func projectPackageValid(pkg *packages.Package) bool {
+	return !pkg.IllTyped && len(pkg.Errors) == 0 && pkg.Types != nil && pkg.Types.Complete() &&
+		pkg.TypesInfo != nil && pkg.TypesInfo.Types != nil && pkg.TypesInfo.Defs != nil && pkg.TypesInfo.Uses != nil
+}
+
+// Baseline failures are tolerated, but every previously valid root (including
+// unedited dependents and test variants) must survive overlay validation.
+func validateProjectRoots(pkgs []*packages.Package, baseline map[string]bool, report *DirectoryReport) error {
+	present := make(map[string]*packages.Package)
+	for _, pkg := range pkgs {
+		present[pkg.ID] = pkg
+	}
+	var failed []string
+	for id := range baseline {
+		pkg := present[id]
+		if pkg == nil || !projectPackageValid(pkg) {
+			failed = append(failed, id)
+		}
+	}
+	sort.Strings(failed)
+	for _, id := range failed {
+		report.Diagnostics = append(report.Diagnostics, Diagnostic{Message: "previously valid package missing or failed typechecking: " + id})
+		if pkg := present[id]; pkg != nil {
+			_ = projectErrors([]*packages.Package{pkg}, report)
+		}
+	}
+	if len(failed) != 0 {
+		return fmt.Errorf("previously valid packages failed validation: %s", strings.Join(failed, ", "))
+	}
+	return nil
 }
 
 func projectErrors(pkgs []*packages.Package, report *DirectoryReport) error {

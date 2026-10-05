@@ -27,7 +27,8 @@ type SourceReport struct {
 	Diagnostics         []Diagnostic
 }
 
-// LocalFile checks the containing package, including tests, but edits only path.
+// LocalFile checks the containing package, including tests, when an edit is
+// possible. Proven syntax-only no-ops avoid loading packages. Only path is edited.
 // Dependencies must already be available; no dependency installation is performed.
 func LocalFile(cfg SourceConfig, path string) (SourceReport, error) {
 	path, err := filepath.Abs(path)
@@ -77,7 +78,7 @@ func Source(cfg SourceConfig, src string) (SourceReport, error) {
 
 func checkSource(src string) (*token.FileSet, *ast.File, *types.Info, error) {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "source.go", src, parser.ParseComments|parser.AllErrors)
+	file, err := parser.ParseFile(fset, "source.go", src, parser.ParseComments|parser.AllErrors|parser.SkipObjectResolution)
 	if err != nil {
 		return nil, nil, nil, err
 	}

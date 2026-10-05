@@ -20,9 +20,10 @@ func TestSourceContractsRangeBoxingAndRecover(t *testing.T) {
 import "io"
 func source() error { return io.EOF }
 func producer() error { e := source(); if e != nil { return e }; return nil }
+func independent() error { e := source(); if e != nil { return e }; return nil }
 `
 	baseline, err := Source(NewSourceConfig(), producer)
-	if err != nil || baseline.TotalErrorsEnhanced != 1 {
+	if err != nil || baseline.TotalErrorsEnhanced != 2 {
 		t.Fatalf("producer must be eligible without consumers: %+v, %v", baseline, err)
 	}
 	for _, tc := range []struct {
@@ -47,8 +48,12 @@ func producer() error { e := source(); if e != nil { return e }; return nil }
 		t.Run(tc.name, func(t *testing.T) {
 			src := producer + tc.consumer + "\n"
 			report, err := Source(NewSourceConfig(), src)
-			if !errors.Is(err, ErrNoChanges) || report.After != src || report.TotalErrorsEnhanced != 0 {
-				t.Fatalf("identity producer changed: %+v, %v", report, err)
+			want := 1
+			if tc.fallback && tc.name != "generic boxing" {
+				want = 2
+			}
+			if err != nil || report.TotalErrorsEnhanced != want {
+				t.Fatalf("want %d targeted rewrites: %+v, %v", want, report, err)
 			}
 			var consumerWarning, fallback bool
 			for _, d := range report.Diagnostics {
@@ -151,6 +156,7 @@ func independent() error { e := source(); if e != nil { return e }; return nil }
 	}{
 		{"alias", `func consume() { e := producer(); alias := e; if alias == sentinel {} }`, false},
 		{"alias cycle", `func consume(flag bool) { e := producer(); a := e; if flag { e = a }; if a != sentinel {} }`, false},
+		{"late boxed assignment", `func consume() { var x any; defer func() { _, _ = x.(interface { Timeout() bool }) }(); x = producer() }`, false},
 		{"forwarding", `func forward() error { return producer() }; func next() error { return forward() }; func consume() { if next() == sentinel {} }`, false},
 		{"forwarding local", `func forward() error { e := producer(); alias := e; return alias }; func consume() { if forward() == sentinel {} }`, false},
 		{"named result", `func forward() (err error) { err = producer(); return }; func consume() { if forward() == sentinel {} }`, false},
@@ -183,10 +189,10 @@ func independent() error { e := source(); if e != nil { return e }; return nil }
 				t.Fatal(err)
 			}
 			got := readProjectFile(t, filepath.Join(root, "producer.go"))
-			// Both functions are normally eligible. Only independent may change.
+			// Known conflicts protect producer; uncertainty must not block independent.
 			start := strings.Index(got, "func producer()")
 			end := strings.Index(got, "func independent()")
-			if strings.Contains(got[start:end], "Errorf") {
+			if strings.Contains(got[start:end], "Errorf") != tc.fallback {
 				t.Fatalf("identity producer rewritten:\n%s", got)
 			}
 			consumer := readProjectFile(t, filepath.Join(root, "consumer.go"))
@@ -195,7 +201,7 @@ func independent() error { e := source(); if e != nil { return e }; return nil }
 			}
 			want := 1
 			if tc.fallback {
-				want = 0
+				want = 2
 			}
 			if report.TotalErrorsEnhanced != want {
 				t.Fatalf("want %d rewrites, got %+v", want, report)
@@ -273,8 +279,8 @@ func consume() { err := p.F(); if err == io.EOF {} }
 	if warnings != 2 {
 		t.Fatalf("project warnings missing: %+v", report.Diagnostics)
 	}
-	sr, _ := LocalFile(NewSourceConfig(), filepath.Join(root, "consumer/c.go"))
-	if len(sr.Diagnostics) == 0 || !strings.Contains(sr.Diagnostics[0].Message, "wrapping compatibility") {
-		t.Fatalf("source warning missing: %+v", sr)
+	sr, err := LocalFile(NewSourceConfig(), filepath.Join(root, "consumer/c.go"))
+	if !errors.Is(err, ErrNoChanges) || len(sr.Diagnostics) != 0 {
+		t.Fatalf("on-save no-op should avoid a package audit: %+v, %v", sr, err)
 	}
 }

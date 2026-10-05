@@ -43,7 +43,10 @@ func cliProject(t *testing.T, source string) string {
 	t.Helper()
 	t.Setenv("GOWORK", "off")
 	t.Setenv("GOFLAGS", "")
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, contents := range map[string]string{
 		"go.mod": "module example.com/cli\n\ngo 1.22.5\n",
 		"foo.go": source,
@@ -180,5 +183,26 @@ func TestDiffCommandWriteErrors(t *testing.T) {
 				t.Fatalf("error=%v, want output error", err)
 			}
 		})
+	}
+}
+
+func TestCLISkipsUnderscoreExamples(t *testing.T) {
+	root := cliProject(t, cliSource)
+	if err := os.Mkdir(filepath.Join(root, "_examples"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "_examples", "broken.go"), []byte("package main; var _ = missing"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "1 file would be modified") {
+		t.Fatalf("Go discovery mismatch: %s", stdout.String())
 	}
 }

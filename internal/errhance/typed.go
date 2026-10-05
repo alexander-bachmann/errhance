@@ -43,7 +43,8 @@ type typedRewriter struct {
 	fmtName     string
 	fmtImport   *types.PkgName
 	needImport  bool
-	names       map[string]bool
+	fmtChecked  bool
+	fmtSafe     bool
 }
 
 // rewriteTyped requires a fully typechecked file parsed with parser.ParseComments.
@@ -61,26 +62,7 @@ func rewriteTyped(fset *token.FileSet, file *ast.File, info *types.Info, src str
 		return src, nil, 0, nil
 	}
 	r := &typedRewriter{fset: fset, file: file, info: info, src: src, cfg: cfg,
-		errType: types.Universe.Lookup("error").Type(), names: make(map[string]bool)}
-	ast.Inspect(file, func(n ast.Node) bool {
-		if id, ok := n.(*ast.Ident); ok {
-			r.names[id.Name] = true
-		}
-		return true
-	})
-	// Include package declarations from other files and dot-imported names.
-	for _, obj := range info.Defs {
-		if obj != nil && obj.Pkg() != nil {
-			for _, name := range obj.Pkg().Scope().Names() {
-				r.names[name] = true
-			}
-		}
-	}
-	for _, scope := range info.Scopes {
-		for _, name := range scope.Names() {
-			r.names[name] = true
-		}
-	}
+		errType: types.Universe.Lookup("error").Type()}
 	for _, imp := range file.Imports {
 		path, _ := strconv.Unquote(imp.Path.Value)
 		if path != "fmt" {
@@ -100,8 +82,36 @@ func rewriteTyped(fset *token.FileSet, file *ast.File, info *types.Info, src str
 		}
 	}
 	if r.fmtName == "" {
+		names := make(map[string]bool)
+		ast.Inspect(file, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				names[id.Name] = true
+			}
+			return true
+		})
+		// The AST supplies local names; only file/package scopes can add
+		// collisions from other files or dot imports.
+		if scope := info.Scopes[file]; scope != nil {
+			for _, scope := range []*types.Scope{scope, scope.Parent()} {
+				if scope != nil {
+					for _, name := range scope.Names() {
+						names[name] = true
+					}
+				}
+			}
+		} else {
+			packages := make(map[*types.Package]bool)
+			for _, obj := range info.Defs {
+				if obj != nil && obj.Pkg() != nil && !packages[obj.Pkg()] {
+					packages[obj.Pkg()] = true
+					for _, name := range obj.Pkg().Scope().Names() {
+						names[name] = true
+					}
+				}
+			}
+		}
 		r.fmtName = "errhancefmt"
-		for i := 2; r.names[r.fmtName]; i++ {
+		for i := 2; names[r.fmtName]; i++ {
 			r.fmtName = "errhancefmt" + strconv.Itoa(i)
 		}
 	}
@@ -112,7 +122,7 @@ func rewriteTyped(fset *token.FileSet, file *ast.File, info *types.Info, src str
 				obj, _ := info.Defs[fn.Name].(*types.Func)
 				if obj != nil {
 					blocked := cfg.blockedFunctions[contractFunctionKey(obj)]
-					if fn.Recv != nil && typedReadName(fn.Name.Name) {
+					if readerContract(obj) {
 						blocked = "Read/ReadByte/ReadRune method may require sentinel error identity"
 					}
 					r.function(fn.Type, fn.Body, obj.Type().(*types.Signature), blocked)
@@ -190,10 +200,6 @@ func rewriteTyped(fset *token.FileSet, file *ast.File, info *types.Info, src str
 	return src, r.diagnostics, r.count, nil
 }
 
-func typedReadName(name string) bool {
-	return name == "Read" || name == "ReadByte" || name == "ReadRune"
-}
-
 func (r *typedRewriter) diagnostic(n ast.Node, message string) {
 	r.diagnostics = append(r.diagnostics, Diagnostic{r.fset.Position(n.Pos()), message})
 }
@@ -241,9 +247,14 @@ func (r *typedRewriter) fmtBindingSafe() bool {
 	if r.fmtName == "_" || r.fmtName == "." {
 		return false
 	}
+	if r.fmtChecked {
+		return r.fmtSafe
+	}
+	r.fmtChecked, r.fmtSafe = true, true
 	// A globally conservative check also works when the loader omits Scopes.
 	for id, obj := range r.info.Defs {
 		if id.Name == r.fmtName && obj != r.fmtImport && r.fset.File(id.Pos()) == r.fset.File(r.file.Pos()) {
+			r.fmtSafe = false
 			return false
 		}
 	}
@@ -279,8 +290,26 @@ func (r *typedRewriter) function(ft *ast.FuncType, body *ast.BlockStmt, sig *typ
 		switch n := n.(type) {
 		case *ast.FuncLit:
 			ast.Inspect(n.Body, func(n ast.Node) bool {
-				if id, ok := n.(*ast.Ident); ok && locals[r.info.Uses[id]] {
-					unsafe[r.info.Uses[id]] = "captured error may be mutated by a closure"
+				var writes []ast.Expr
+				switch n := n.(type) {
+				case *ast.AssignStmt:
+					writes = n.Lhs
+				case *ast.RangeStmt:
+					writes = []ast.Expr{n.Key, n.Value}
+				case *ast.IncDecStmt:
+					writes = []ast.Expr{n.X}
+				case *ast.UnaryExpr:
+					if n.Op == token.AND {
+						writes = []ast.Expr{n.X}
+					}
+				}
+				for _, expr := range writes {
+					if expr == nil {
+						continue
+					}
+					if id, ok := ast.Unparen(expr).(*ast.Ident); ok && locals[r.info.ObjectOf(id)] {
+						unsafe[r.info.ObjectOf(id)] = "captured error may be mutated by a closure"
+					}
 				}
 				return true
 			})
@@ -344,7 +373,7 @@ func (r *typedRewriter) function(ft *ast.FuncType, body *ast.BlockStmt, sig *typ
 			}
 		unwrapped:
 			if sel, ok := fun.(*ast.SelectorExpr); ok {
-				if fn, ok := r.info.Uses[sel.Sel].(*types.Func); ok && fn.Type().(*types.Signature).Recv() != nil && typedReadName(fn.Name()) {
+				if fn, ok := r.info.Uses[sel.Sel].(*types.Func); ok && readerContract(fn) {
 					return typedOrigin{reason: "Read/ReadByte/ReadRune may return sentinel errors"}
 				}
 			}
@@ -404,6 +433,34 @@ func (r *typedRewriter) function(ft *ast.FuncType, body *ast.BlockStmt, sig *typ
 			env[obj] = value
 		}
 	}
+	// A single body pass must not inherit facts invalidated on another iteration.
+	invalidateWrites := func(n ast.Node, env state) {
+		ast.Inspect(n, func(n ast.Node) bool {
+			var writes []ast.Expr
+			switch n := n.(type) {
+			case *ast.FuncLit:
+				return false // Captured mutations are already unsafe for the whole function.
+			case *ast.AssignStmt:
+				writes = n.Lhs
+			case *ast.RangeStmt:
+				writes = []ast.Expr{n.Key, n.Value}
+			case *ast.IncDecStmt:
+				writes = []ast.Expr{n.X}
+			case *ast.ValueSpec:
+				for _, id := range n.Names {
+					delete(env, r.info.ObjectOf(id))
+				}
+			}
+			for _, expr := range writes {
+				if expr != nil {
+					if id, ok := ast.Unparen(expr).(*ast.Ident); ok {
+						delete(env, r.info.ObjectOf(id))
+					}
+				}
+			}
+			return true
+		})
+	}
 	var stmt func(ast.Stmt, state, bool) (state, bool)
 	stmt = func(s ast.Stmt, env state, omit bool) (state, bool) {
 		if _, block := s.(*ast.BlockStmt); !block {
@@ -461,11 +518,89 @@ func (r *typedRewriter) function(ft *ast.FuncType, body *ast.BlockStmt, sig *typ
 				r.rewriteReturn(s, sig, env, origin, blocked)
 			}
 			return env, false
+		case *ast.BranchStmt:
+			if s.Tok == token.GOTO && !omit {
+				r.diagnostic(s, "goto control flow is unsupported")
+			}
+			return env, false
+		case *ast.LabeledStmt:
+			return stmt(s.Stmt, env, omit)
+		case *ast.ForStmt:
+			if s.Init != nil {
+				env, _ = stmt(s.Init, env, omit)
+			}
+			entry := clone(env)
+			invalidateWrites(s, entry)
+			if s.Cond != nil {
+				guard(s.Cond, true, entry)
+			}
+			stmt(s.Body, entry, omit)
+			return make(state), true
+		case *ast.RangeStmt:
+			entry := clone(env)
+			invalidateWrites(s, entry)
+			stmt(s.Body, entry, omit)
+			return make(state), true
+		case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+			var clauses []ast.Stmt
+			switch s := s.(type) {
+			case *ast.SwitchStmt:
+				if s.Init != nil {
+					env, _ = stmt(s.Init, env, omit)
+				}
+				clauses = s.Body.List
+			case *ast.TypeSwitchStmt:
+				if s.Init != nil {
+					env, _ = stmt(s.Init, env, omit)
+				}
+				clauses = s.Body.List
+			case *ast.SelectStmt:
+				clauses = s.Body.List
+			}
+			fallsThrough := false
+			for _, clause := range clauses {
+				entry := clone(env)
+				if fallsThrough {
+					entry = make(state)
+				}
+				var list []ast.Stmt
+				switch clause := clause.(type) {
+				case *ast.CaseClause:
+					list = clause.Body
+				case *ast.CommClause:
+					if clause.Comm != nil {
+						entry, _ = stmt(clause.Comm, entry, omit)
+					}
+					list = clause.Body
+				}
+				// Case expressions are not guards: fallthrough bypasses their tests.
+				// Local if guards still establish fresh, binding-aware facts.
+				fallsThrough = false
+				for _, child := range list {
+					ast.Inspect(child, func(n ast.Node) bool {
+						if _, ok := n.(*ast.FuncLit); ok {
+							return false
+						}
+						if branch, ok := n.(*ast.BranchStmt); ok && branch.Tok == token.FALLTHROUGH {
+							fallsThrough = true
+						}
+						return true
+					})
+				}
+				for _, child := range list {
+					var live bool
+					entry, live = stmt(child, entry, omit)
+					if !live {
+						break
+					}
+				}
+			}
+			// Breaks (including labeled exits) and normal exits merge as unknown.
+			return make(state), true
 		case *ast.ExprStmt, *ast.DeferStmt, *ast.GoStmt, *ast.EmptyStmt:
 			// Captures and address exposure were invalidated for the entire function.
 		default:
-			// No loop fixed point or switch/select/goto model: don't inspect their returns
-			// with stale facts, and discard incoming facts for subsequent statements.
+			// Discard facts for any remaining unsupported statement.
 			if !omit {
 				r.diagnostic(s, "unsupported control flow; error origins invalidated")
 			}

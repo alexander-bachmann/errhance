@@ -13,6 +13,7 @@ type Config struct {
 	numWorkers         int
 	includeHidden      bool
 	includeDirectories bool
+	skipUnderscoreDirs bool
 	onlyExtensions     map[string]struct{}
 	onlyFilepaths      map[string]struct{}
 	skipDirectories    map[string]struct{}
@@ -55,6 +56,12 @@ func WithIncludeHidden(b bool) Option {
 
 func WithIncludeDirectories(b bool) Option {
 	return func(cfg *Config) { cfg.includeDirectories = b }
+}
+
+// WithSkipUnderscoreDirectories follows Go's recursive package discovery rule.
+// An explicitly selected root is still visited.
+func WithSkipUnderscoreDirectories(b bool) Option {
+	return func(cfg *Config) { cfg.skipUnderscoreDirs = b }
 }
 
 func WithOnlyExtensions(exts []string) Option {
