@@ -1,0 +1,326 @@
+package fastwalk
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func writeFiles(t *testing.T, root string, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func collect(t *testing.T, root string, opts ...Option) []string {
+	t.Helper()
+	var mu sync.Mutex
+	var got []string
+	cfg := NewConfig(func(_ context.Context, path string) error {
+		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+			t.Errorf("callback path not normalized: %q", path)
+		}
+		mu.Lock()
+		got = append(got, path)
+		mu.Unlock()
+		return nil
+	}, append([]Option{WithRootFilepath(root)}, opts...)...)
+	if err := Walk(cfg); err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(got)
+	return got
+}
+
+func TestWalkFilters(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, "a.go", "b.txt", ".hidden.go", ".hidden/c.go", "sub/d.go", "vendor/e.go", "other/vendor", "other/z.go")
+	tests := []struct {
+		name string
+		opts []Option
+		want []string
+	}{
+		{"default", nil, []string{"a.go", "b.txt", "sub/d.go", "vendor/e.go", "other/vendor", "other/z.go"}},
+		{"hidden", []Option{WithIncludeHidden(true)}, []string{"a.go", "b.txt", ".hidden.go", ".hidden/c.go", "sub/d.go", "vendor/e.go", "other/vendor", "other/z.go"}},
+		{"extensions", []Option{WithOnlyExtensions([]string{"go"})}, []string{"a.go", "sub/d.go", "vendor/e.go", "other/z.go"}},
+		// A regular file named vendor must not trigger SkipDir or skip z.go.
+		{"skip directories", []Option{WithSkipDirectories([]string{"vendor"})}, []string{"a.go", "b.txt", "sub/d.go", "other/vendor", "other/z.go"}},
+		{"directories", []Option{WithIncludeDirectories(true)}, []string{".", "a.go", "b.txt", "sub", "sub/d.go", "vendor", "vendor/e.go", "other", "other/vendor", "other/z.go"}},
+		{"nested path", []Option{WithOnlyFilepaths([]string{filepath.Join(root, "sub/d.go")})}, []string{"sub/d.go"}},
+		{"intersection", []Option{WithOnlyFilepaths([]string{filepath.Join(root, "b.txt")}), WithOnlyExtensions([]string{".go"})}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := collect(t, root, tt.opts...)
+			var want []string
+			for _, name := range tt.want {
+				want = append(want, filepath.Join(root, name))
+			}
+			sort.Strings(want)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("got %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestWalkNormalizedPaths(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	writeFiles(t, root, "a.go", "sub/b.go")
+	rel, err := filepath.Rel(wd, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{root, rel, rel + string(filepath.Separator) + "."} {
+		for _, filter := range []string{filepath.Join(rel, "a.go"), filepath.Join(wd, rel) + "/sub/../a.go"} {
+			got := collect(t, root, WithOnlyFilepaths([]string{filter}))
+			want, err := filepath.Abs(filepath.Join(root, "a.go"))
+			if err != nil || !reflect.DeepEqual(got, []string{want}) {
+				t.Fatalf("root %q filter %q: got %v, want %s (err %v)", root, filter, got, want, err)
+			}
+		}
+	}
+	got := collect(t, ".", WithOnlyFilepaths([]string{"./fastwalk_test.go"}))
+	if want := []string{filepath.Join(wd, "fastwalk_test.go")}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("root '.': got %v, want %v", got, want)
+	}
+}
+
+func TestWalkHiddenRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), ".root")
+	writeFiles(t, root, "a.go", ".hidden.go", ".hidden/b.go")
+	if got := collect(t, root); !reflect.DeepEqual(got, []string{filepath.Join(root, "a.go")}) {
+		t.Fatal(got)
+	}
+	// An explicitly requested hidden regular file is also a valid root.
+	path := filepath.Join(root, ".hidden.go")
+	if got := collect(t, path); !reflect.DeepEqual(got, []string{path}) {
+		t.Fatal(got)
+	}
+}
+
+func TestWalkValidationAndErrors(t *testing.T) {
+	noop := func(context.Context, string) error { return nil }
+	for _, cfg := range []Config{{}, NewConfig(nil), NewConfig(noop, WithNumWorkers(0)), NewConfig(noop, WithNumWorkers(-1))} {
+		if err := Walk(cfg); err == nil {
+			t.Fatal("invalid configuration accepted")
+		}
+	}
+	root := t.TempDir()
+	if got := collect(t, root); len(got) != 0 {
+		t.Fatal(got)
+	}
+	if err := Walk(NewConfig(noop, WithRootFilepath(filepath.Join(root, "missing")))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing root: %v", err)
+	}
+	writeFiles(t, root, "a.go")
+	want := errors.New("callback failed")
+	if err := Walk(NewConfig(func(context.Context, string) error { return want }, WithRootFilepath(root))); !errors.Is(err, want) {
+		t.Fatalf("callback error: %v", err)
+	}
+}
+
+func TestWalkCancellation(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 250; i++ {
+		writeFiles(t, root, fmt.Sprintf("%03d.go", i))
+	}
+	for _, mode := range []string{"pre-canceled", "deadline", "active", "callback error", "callback cancels"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			want := error(context.Canceled)
+			if mode == "pre-canceled" {
+				cancel()
+			}
+			if mode == "deadline" {
+				var stop context.CancelFunc
+				ctx, stop = context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer stop()
+				want = context.DeadlineExceeded
+			}
+			if mode == "callback error" {
+				want = errors.New("worker failed")
+			}
+			started := make(chan struct{})
+			var calls atomic.Int32
+			var active atomic.Int32
+			cfg := NewConfig(func(ctx context.Context, _ string) error {
+				calls.Add(1)
+				active.Add(1)
+				defer active.Add(-1)
+				close(started)
+				switch mode {
+				case "active":
+					<-ctx.Done()
+				case "callback error":
+					return want
+				case "callback cancels":
+					cancel()
+				}
+				return nil
+			}, WithRootFilepath(root), WithNumWorkers(1))
+			done := make(chan error, 1)
+			go func() { done <- WalkContext(ctx, cfg) }()
+			if mode == "active" {
+				select {
+				case <-started:
+					cancel()
+				case <-time.After(5 * time.Second):
+					t.Fatal("callback did not start")
+				}
+			}
+			select {
+			case err := <-done:
+				if !errors.Is(err, want) {
+					t.Fatalf("got %v, want %v", err, want)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("walk did not stop")
+			}
+			if active.Load() != 0 || calls.Load() > 1 {
+				t.Fatalf("active=%d calls=%d", active.Load(), calls.Load())
+			}
+			if (mode == "pre-canceled" || mode == "deadline") && calls.Load() != 0 {
+				t.Fatal("callback ran with canceled context")
+			}
+		})
+	}
+}
+
+func TestWalkSymlinks(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	writeFiles(t, root, "regular.go")
+	writeFiles(t, outside, "outside.go")
+	for name, target := range map[string]string{"file.go": filepath.Join(outside, "outside.go"), "dir": outside, "dangling": filepath.Join(outside, "missing"), "loop": root} {
+		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	// Never follow links, including dangling links and cycles, even when all
+	// entry types and hidden names have been requested.
+	got := collect(t, root, WithIncludeDirectories(true), WithIncludeHidden(true))
+	if !reflect.DeepEqual(got, []string{root, filepath.Join(root, "regular.go")}) {
+		t.Fatal(got)
+	}
+	for _, name := range []string{"file.go", "dir", "dangling", "loop", "dir/outside.go"} {
+		cfg := NewConfig(func(context.Context, string) error {
+			t.Error("callback invoked through root symlink")
+			return nil
+		}, WithRootFilepath(filepath.Join(root, name)))
+		if err := Walk(cfg); err == nil {
+			t.Fatalf("symlink root %s accepted", name)
+		}
+	}
+}
+
+func TestWalkSpecialFiles(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "socket.go")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Skipf("unix socket unavailable: %v", err)
+	}
+	defer listener.Close()
+	writeFiles(t, root, "regular.go")
+	// Special files are not callback inputs, even with a matching extension.
+	if got := collect(t, root, WithOnlyExtensions([]string{"go"})); !reflect.DeepEqual(got, []string{filepath.Join(root, "regular.go")}) {
+		t.Fatal(got)
+	}
+	if err := Walk(NewConfig(func(context.Context, string) error {
+		t.Error("callback invoked for socket root")
+		return nil
+	}, WithRootFilepath(path))); err == nil {
+		t.Fatal("socket root accepted")
+	}
+}
+
+func TestWalkDrainsQueue(t *testing.T) {
+	root := t.TempDir()
+	var want []string
+	for i := 0; i < 250; i++ {
+		name := fmt.Sprintf("%03d.go", i)
+		writeFiles(t, root, name)
+		want = append(want, filepath.Join(root, name))
+	}
+	for _, workers := range []int{1, 8} {
+		if got := collect(t, root, WithNumWorkers(workers)); !reflect.DeepEqual(got, want) {
+			t.Fatalf("workers=%d: queue not fully drained or duplicate callbacks", workers)
+		}
+	}
+}
+
+func TestWalkWaitsForWorkers(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, "a.go", "b.go", "c.go", "d.go", "e.go")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan struct{}, 4)
+	var completed atomic.Int32
+	done := make(chan error, 1)
+	go func() {
+		done <- WalkContext(ctx, NewConfig(func(ctx context.Context, _ string) error {
+			started <- struct{}{}
+			<-ctx.Done()
+			completed.Add(1)
+			return nil
+		}, WithRootFilepath(root), WithNumWorkers(4)))
+	}()
+	for i := 0; i < 4; i++ {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("workers did not start")
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) || completed.Load() != 4 {
+			t.Fatalf("err=%v completed=%d", err, completed.Load())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("workers did not stop")
+	}
+}
+
+func TestWalkTraversalError(t *testing.T) {
+	root := t.TempDir()
+	blocked := filepath.Join(root, "blocked")
+	writeFiles(t, root, "blocked/a.go")
+	if err := os.Chmod(blocked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0755) })
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("environment permits reading directories without permission")
+	}
+	err := Walk(NewConfig(func(context.Context, string) error {
+		t.Error("callback invoked for inaccessible file")
+		return nil
+	}, WithRootFilepath(root)))
+	if !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("got %v, want permission error", err)
+	}
+}

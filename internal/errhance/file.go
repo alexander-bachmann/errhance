@@ -1,307 +1,92 @@
 package errhance
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"go/ast"
+	"go/importer"
 	"go/parser"
 	"go/token"
-	"os"
-	"strings"
+	"go/types"
+	"path/filepath"
 
-	"github.com/alexander-bachmann/errhance/internal/fmtstr"
+	"golang.org/x/tools/go/packages"
+	"golang.org/x/tools/imports"
 )
 
-var (
-	ErrNoChanges = errors.New("no changes")
-)
+var ErrNoChanges = errors.New("no changes")
 
-// may return ErrNoChanges
-func LocalFile(cfg SourceConfig, path string) (SourceReport, error) {
-	before, err := os.ReadFile(path)
-	if err != nil {
-		return SourceReport{}, fmt.Errorf("os.ReadFile: %w", err)
-	}
-	report, err := Source(cfg, string(before))
-	if err != nil {
-		return report, fmt.Errorf("Source: %w", err)
-	}
-	// open the file for writing and truncate
-	// its content without modifying permissions
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
-	if err != nil {
-		return report, fmt.Errorf("os.OpenFile: %w", err)
-	}
-	defer file.Close()
-	if _, err := file.Write([]byte(report.After)); err != nil {
-		return report, fmt.Errorf("file.Write: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		return report, fmt.Errorf("file.Sync: %w", err)
-	}
-	err = runGoImportsOnFile(path)
-	if err != nil {
-		return report, fmt.Errorf("runGoImportsOnFile: %w", err)
-	}
-	return report, nil
-}
-
+// SourceReport describes the proposed transformation. On a disk-entrypoint
+// error, After and TotalErrorsEnhanced do not imply that a write succeeded.
 type SourceReport struct {
 	Skipped             bool
 	Before              string
 	After               string
 	TotalErrorsEnhanced int
+	Diagnostics         []Diagnostic
 }
 
-// keep the core errhance logic as a pure function; any side effects should be put in LocalFile()
+// LocalFile checks the containing package, including tests, but edits only path.
+// Dependencies must already be available; no dependency installation is performed.
+func LocalFile(cfg SourceConfig, path string) (SourceReport, error) {
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return SourceReport{}, err
+	}
+	directory, reports, err := rewriteProject(context.Background(), cfg, []string{path}, map[string]bool{path: true})
+	report := reports[path]
+	if err != nil && len(report.Diagnostics) == 0 {
+		report.Diagnostics = directory.Diagnostics
+	}
+	if err == nil && report.Before == report.After {
+		err = ErrNoChanges
+	}
+	return report, err
+}
+
+// Source rewrites a standalone, type-correct file. importer.Default resolves
+// standard-library imports; use disk entrypoints for module-aware checking.
 func Source(cfg SourceConfig, src string) (SourceReport, error) {
-	report := SourceReport{
-		Before:              src,
-		After:               src,
-		TotalErrorsEnhanced: 0,
-		Skipped:             false,
+	report := SourceReport{Before: src, After: src}
+	fset, file, info, err := checkSource(src)
+	if err != nil {
+		return report, err
 	}
-	if !cfg.generated && isGeneratedFile(report.Before) {
-		report.Skipped = true
+	report.Skipped = ast.IsGenerated(file) && !cfg.generated
+	blocked, contractDiagnostics := projectContracts([]*packages.Package{{Fset: fset, Syntax: []*ast.File{file}, TypesInfo: info}})
+	cfg.blockedFunctions = blocked
+	after, diagnostics, count, err := rewriteTyped(fset, file, info, src, cfg)
+	report.Diagnostics = append(contractDiagnostics, diagnostics...)
+	if err != nil {
+		return report, err
+	}
+	if after == src {
 		return report, ErrNoChanges
 	}
-	for {
-		var ok bool
-		var err error
-		src, ok, err = enhanceNextErr(cfg, src)
-		if err != nil {
-			return report, fmt.Errorf("enhanceNextErr: %w", err)
-		}
-		if ok {
-			report.TotalErrorsEnhanced++
-		} else {
-			// when enhanceNextErr does nothing, the file is completely enhanced
-			break
-		}
+	formatted, err := imports.Process("source.go", []byte(after), &imports.Options{Comments: true, TabIndent: true, TabWidth: 8, FormatOnly: true})
+	if err != nil {
+		return report, fmt.Errorf("imports: %w", err)
 	}
-	report.After = src
-	if len(report.Before) == len(report.After) && report.Before == report.After {
-		return report, ErrNoChanges
+	if _, _, _, err := checkSource(string(formatted)); err != nil {
+		return report, fmt.Errorf("transformed source: %w", err)
 	}
+	report.After, report.TotalErrorsEnhanced = string(formatted), count
 	return report, nil
 }
 
-const (
-	Next = true // recursively visit each non-nil child node
-	Skip = false
-)
-
-func enhanceNextErr(cfg SourceConfig, src string) (string, bool, error) {
-	var hasEnhanced bool
-	var name string
-
-	// recompute AST after each replacement,
-	// otherwise node positions will be inaccurate
+func checkSource(src string) (*token.FileSet, *ast.File, *types.Info, error) {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "", src, 0)
+	file, err := parser.ParseFile(fset, "source.go", src, parser.ParseComments|parser.AllErrors)
 	if err != nil {
-		return src, hasEnhanced, fmt.Errorf("parser.ParseFile: %w", err)
+		return nil, nil, nil, err
 	}
-	ast.Inspect(file, func(node ast.Node) bool {
-		// after a single enhancement, exit early to recalculate node positions
-		if hasEnhanced {
-			return Skip
-		}
-		if node == nil {
-			return Next
-		}
-		switch n := node.(type) {
-		case *ast.AssignStmt: // err := foo().bar()
-			if !returnsErr(*n) {
-				return Next
-			}
-			name = callExprName(*n) // foo.bar
-
-		case *ast.IfStmt: // if err != nil
-			if !hasErrNotEqualNilCond(*n) {
-				return Next
-			}
-			block := src[int((*n).Pos())-1 : int((*n).End()-1)]
-			if containsOmitComment(block) {
-				return Skip
-			}
-			// AssignStmt within IfStmt indicates shorthand syntax
-			// if err := foo.Bar(); err != nil
-			if i, ok := n.Init.(*ast.AssignStmt); ok {
-				name = callExprName(*i) // foo.Bar
-			}
-			// err => fmt.Errorf("foo.Bar: %w", err)
-			var ok bool
-			src, ok = replaceErr(cfg, src, *n, name)
-			if !ok {
-				break
-			}
-			hasEnhanced = true
-			return Skip
-		}
-		// printNode(src, node)
-		return Next
-	})
-	return src, hasEnhanced, nil
-}
-
-func replaceErr(cfg SourceConfig, src string, ifStmt ast.IfStmt, newErr string) (string, bool) {
-	if newErr == "" {
-		return src, false
+	info := &types.Info{
+		Types: make(map[ast.Expr]types.TypeAndValue), Defs: make(map[*ast.Ident]types.Object),
+		Uses: make(map[*ast.Ident]types.Object), Implicits: make(map[ast.Node]types.Object),
+		Selections: make(map[*ast.SelectorExpr]*types.Selection), Scopes: make(map[ast.Node]*types.Scope),
 	}
-	// skip if err value is overwritten before being returned
-	/*
-		if err != nil {
-			err = doSomething(err)
-			return err
-		}
-	*/
-	if ifStmt.Body != nil {
-		block := src[ifStmt.Body.Lbrace-1 : ifStmt.Body.Rbrace]
-		if strings.Contains(block, "err :=") || strings.Contains(block, "err =") {
-			return src, false
-		}
-	}
-	newErr, pos, length := newErrPosLen(cfg, src, ifStmt, newErr)
-	if pos == -1 || length == -1 {
-		return src, false
-	}
-	// make no changes if current err and new err are identical
-	if src[pos-1:pos+length-1] == newErr {
-		return src, false
-	}
-
-	return src[:pos-1] + newErr + src[pos+length-1:], true
-}
-
-func newErrPosLen(cfg SourceConfig, src string, ifStmt ast.IfStmt, callFn string) (string, int, int) {
-	pos := -1
-	length := -1
-	if ifStmt.Body == nil {
-		return "", pos, length
-	}
-	for _, stmt := range ifStmt.Body.List {
-		returnStmt, ok := stmt.(*ast.ReturnStmt)
-		if !ok {
-			continue
-		}
-		if len(returnStmt.Results) == 0 {
-			continue
-		}
-		switch n := returnStmt.Results[len(returnStmt.Results)-1].(type) {
-		case *ast.Ident:
-			if (*n).Name == "err" {
-				fmtErrorf := FmtErrorf{Args: []string{"err"}}
-				newErr := fmtErrorf.Errhance(callFn)
-				pos = int((*n).Pos())
-				length = 3
-				return newErr, pos, length
-			}
-		case *ast.CallExpr:
-			if cfg.overwrite && isFmtErrorf(*n) {
-				fmtErrorf, err := ParseFmtErrorf(src, *n)
-				if err != nil {
-					// TODO: consider passing error up
-					return "", pos, length
-				}
-				newErr := fmtErrorf.Errhance(callFn)
-				pos = int((*n).Pos())
-				length = int((*n).End() - (*n).Pos())
-				return newErr, pos, length
-			}
-		}
-	}
-	return "", pos, length
-}
-
-func nodeStr(src string, node ast.Node) string {
-	return src[node.Pos()-1 : node.End()-1]
-}
-
-type FmtErrorf struct {
-	Format     string
-	Directives []string
-	Args       []string
-}
-
-func ParseFmtErrorf(src string, callExpr ast.CallExpr) (FmtErrorf, error) {
-	if !isFmtErrorf(callExpr) {
-		return FmtErrorf{}, fmt.Errorf("call expr is not fmt.Errorf")
-	}
-	if len(callExpr.Args) == 0 {
-		return FmtErrorf{}, fmt.Errorf("call expr has no args")
-	}
-	format := nodeStr(src, callExpr.Args[0])
-	// throw away error since it's okay if directives are missing
-	directives, _ := parseDirectives(format)
-	var args []string
-	for i := 1; i < len(callExpr.Args); i++ {
-		args = append(args, nodeStr(src, callExpr.Args[i]))
-	}
-	fmtErrorf := FmtErrorf{
-		Format:     format,
-		Directives: directives,
-		Args:       args,
-	}
-	return fmtErrorf, nil
-}
-
-// e.g. io.ReadAll => fmt.Errorf("io.ReadAll: %w: %s", err, url)
-func (f *FmtErrorf) Errhance(callFn string) string {
-	f.tryDirectivesSupplement()
-	f.tryErrorDirectivesUpgrade()
-	f.Format = strings.Join(append([]string{callFn}, f.Directives...), ": ")
-	return fmt.Sprintf(`fmt.Errorf(%s)`,
-		strings.Join(append([]string{`"` + f.Format + `"`}, f.Args...), ", "))
-}
-
-func parseDirectives(str string) ([]string, error) {
-	ops, err := fmtstr.Parse(str, -1)
-	if err != nil {
-		return nil, err
-	}
-	var dirs []string
-	for _, op := range ops {
-		if op == nil {
-			continue
-		}
-		// %% isn't a directive, it's an escape to print %
-		if op.Text == "%%" {
-			continue
-		}
-		dirs = append(dirs, op.Text)
-	}
-	return dirs, nil
-}
-
-func (f *FmtErrorf) tryDirectivesSupplement() {
-	if len(f.Directives) == len(f.Args) {
-		return
-	}
-	f.Directives = []string{}
-	for _, arg := range f.Args {
-		if probablyErrorArg(arg) {
-			f.Directives = append(f.Directives, "%w")
-		} else {
-			f.Directives = append(f.Directives, "%v")
-		}
-	}
-}
-
-func (f *FmtErrorf) tryErrorDirectivesUpgrade() {
-	if len(f.Directives) != len(f.Args) {
-		return
-	}
-	for i, arg := range f.Args {
-		if probablyErrorArg(arg) {
-			if f.Directives[i] == "%v" {
-				f.Directives[i] = "%w"
-			}
-		}
-	}
-}
-
-func probablyErrorArg(arg string) bool {
-	lowerArg := strings.ToLower(arg)
-	return strings.HasPrefix(lowerArg, "err") || strings.HasSuffix(lowerArg, "err")
+	cfg := types.Config{Importer: importer.Default()}
+	_, err = cfg.Check(file.Name.Name, fset, []*ast.File{file}, info)
+	return fset, file, info, err
 }

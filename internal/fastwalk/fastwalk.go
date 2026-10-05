@@ -2,6 +2,7 @@ package fastwalk
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,121 +11,141 @@ import (
 
 func Walk(cfg Config) error { return WalkContext(context.Background(), cfg) }
 
+// WalkContext visits regular files and, when requested, directories using cleaned
+// absolute paths. The explicit root is exempt from hidden-name filtering.
+// Symlink and special-file roots are rejected; such descendants are skipped.
+// These checks do not protect against concurrent filesystem replacement.
+// Cancellation stops scheduling work and waits for active callbacks to return.
 func WalkContext(ctx context.Context, cfg Config) error {
-	// create a cancelable context to allow early termination if an error occurs
+	if cfg.numWorkers <= 0 {
+		return fmt.Errorf("fastwalk: number of workers must be positive")
+	}
+	if cfg.WorkFunc == nil {
+		return fmt.Errorf("fastwalk: work function must not be nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	root, err := filepath.Abs(cfg.rootFilepath)
+	if err != nil {
+		return fmt.Errorf("fastwalk: root path: %w", err)
+	}
+	// WalkDir does not follow descendant symlinks, but the OS would follow
+	// symlinks in the root's parent components without these checks.
+	for path := root; ; path = filepath.Dir(path) {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+			return fmt.Errorf("fastwalk: unsupported root path %q (%s)", path, info.Mode())
+		}
+		if filepath.Dir(path) == path {
+			break
+		}
+	}
+	paths := make(map[string]struct{}, len(cfg.onlyFilepaths))
+	for path := range cfg.onlyFilepaths {
+		path, err := filepath.Abs(path)
+		if err != nil {
+			return fmt.Errorf("fastwalk: filter path: %w", err)
+		}
+		paths[path] = struct{}{}
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
 	var wg sync.WaitGroup
-	// buffered channel to send file paths from the directory walker to workers
 	pathChan := make(chan string, 100)
-	// channel to report errors (buffered to ensure the first error is captured)
-	errChan := make(chan error, 1)
-
-	// worker() processes file paths sent on pathChan.
-	worker := func() {
-		defer wg.Done()
-		for {
-			select {
-			// check if the context is canceled to exit early
-			case <-ctx.Done():
-				return
-			// receive a file path from the channel
-			case p, ok := <-pathChan:
-				if !ok {
-					// channel closed, no more paths to process
+	var firstErr error
+	var once sync.Once
+	report := func(err error) {
+		if err != nil {
+			once.Do(func() {
+				firstErr = err
+				cancel()
+			})
+		}
+	}
+	for i := 0; i < cfg.numWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
 					return
-				}
-				// execute the provided work function.
-				if err := cfg.WorkFunc(ctx, p); err != nil {
-					// on error, send the error to errChan and cancel context to stop further work
-					select {
-					case errChan <- err:
-						cancel()
-					default:
+				case path, ok := <-pathChan:
+					if !ok || ctx.Err() != nil {
+						return
+					}
+					if err := cfg.WorkFunc(ctx, path); err != nil {
+						report(err)
+						return
 					}
 				}
 			}
+		}()
+	}
+
+	// The caller owns production and closes the queue before joining workers.
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-	}
-
-	// start the workers
-	for i := 0; i < cfg.numWorkers; i++ {
-		wg.Add(1)
-		go worker()
-	}
-
-	// start a goroutine to traverse the directory tree
-	go func() {
-		// once done, close the channel to signal no more file paths
-		defer close(pathChan)
-		err := filepath.WalkDir(cfg.rootFilepath, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				// if there is an error accessing a file or directory, report it
-				select {
-				case errChan <- err:
-					cancel()
-				default:
-				}
-				return nil
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if _, skip := cfg.skipDirectories[d.Name()]; skip {
+				return filepath.SkipDir
 			}
-			// skip entire directories if provided
-			if len(cfg.skipDirectories) > 0 {
-				if _, ok := cfg.skipDirectories[d.Name()]; ok {
-					return filepath.SkipDir
-				}
-			}
-			// skip hidden files or hidden directories if includeHidden is false.
-			if !cfg.includeHidden && strings.HasPrefix(d.Name(), ".") {
-				if d.IsDir() {
-					// skip entire directory
-					return filepath.SkipDir
-				}
-				// skip hidden file
-				return nil
-			}
-			// skip directories if includeDirectories is false
-			if !cfg.includeDirectories && d.IsDir() {
-				return nil
-			}
-			// if onlyExtensions is set, filter out files without matching extension
-			if len(cfg.onlyExtensions) > 0 {
-				if _, ok := cfg.onlyExtensions[filepath.Ext(path)]; !ok {
-					return nil
-				}
-			}
-			// if onlyFilepaths is set, only include specified filepaths
-			if len(cfg.onlyFilepaths) > 0 {
-				if _, ok := cfg.onlyFilepaths[path]; !ok {
-					return nil
-				}
-			}
-			// send the file path to the worker pool
-			select {
-			case pathChan <- path:
-			case <-ctx.Done():
-				// exit early if context has been canceled
-				return ctx.Err()
+		}
+		if path != root && !cfg.includeHidden && strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
 			}
 			return nil
-		})
-		// report any error that occurred during the directory walk
-		if err != nil {
-			select {
-			case errChan <- err:
-				cancel()
-			default:
+		}
+		if d.IsDir() {
+			if !cfg.includeDirectories {
+				return nil
+			}
+		} else {
+			// A zero DirEntry type can mean unknown type; confirm via Info.
+			if !d.Type().IsRegular() {
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() {
+				return nil
 			}
 		}
-	}()
-
-	// wait for all workers to finish
+		if len(cfg.onlyExtensions) > 0 {
+			if _, ok := cfg.onlyExtensions[filepath.Ext(path)]; !ok {
+				return nil
+			}
+		}
+		if len(paths) > 0 {
+			if _, ok := paths[path]; !ok {
+				return nil
+			}
+		}
+		select {
+		case pathChan <- path:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	report(err)
+	close(pathChan)
 	wg.Wait()
-	// close error channel as no more errors will be sent
-	close(errChan)
-	// return the first error encountered, if any
-	if err, ok := <-errChan; ok {
-		return err
+	if firstErr != nil {
+		return firstErr
 	}
-	return nil
+	return ctx.Err()
 }

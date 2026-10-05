@@ -4,18 +4,17 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/alexander-bachmann/errhance/internal/errhance"
 	"github.com/alexander-bachmann/errhance/internal/fastwalk"
 )
 
-var cfgFile string
-
 var rootCmd = &cobra.Command{
 	Use:   "errhance",
+	Args:  cobra.NoArgs,
 	Short: "errhance recursively traverses a Go project, enhances returned errors, and writes the changes. The errors are enhanced by wrapping them with the name of the function that initially returned the error.",
 	Long: `errhance recursively traverses a Go project, enhances returned errors, and writes the changes. The errors are enhanced by wrapping them with the name of the function that initially returned the error.
 
@@ -45,9 +44,9 @@ if err := foo.Bar(); err != nil {
 		if err != nil {
 			return err // noeh
 		}
-		skipDirectories := []string{"vendor"}
+		skipDirectories := []string{"testdata", "vendor"}
 		if vendor {
-			skipDirectories = []string{}
+			skipDirectories = []string{"testdata"}
 		}
 		emptyWorkFunc := func(_ context.Context, _ string) error { return nil }
 		dirCfg := errhance.NewDirectoryConfig(
@@ -61,9 +60,13 @@ if err := foo.Bar(); err != nil {
 			errhance.WithOverwrite(overwrite),
 			errhance.WithGenerated(generated),
 		)
-		dirReport, err := errhance.LocalDirectory(dirCfg, srcCfg)
-		if err != nil {
-			return fmt.Errorf("errhance.LocalDirectory: %w", err)
+		dirReport, err := errhance.LocalDirectoryContext(cmd.Context(), dirCfg, srcCfg)
+		for _, diagnostic := range dirReport.Diagnostics {
+			if diagnostic.Position.IsValid() || diagnostic.Position.Filename != "" {
+				cmd.PrintErrf("%s: %s\n", diagnostic.Position, diagnostic.Message)
+			} else {
+				cmd.PrintErrln(diagnostic.Message)
+			}
 		}
 		files := "files"
 		errs := "errors"
@@ -79,45 +82,25 @@ if err := foo.Bar(); err != nil {
 			dirReport.TotalErrorsEnhanced,
 			errs,
 		)
+		if err != nil {
+			return fmt.Errorf("errhance.LocalDirectory: %w", err)
+		}
 		return nil
 	},
 }
 
 func Execute() {
-	err := rootCmd.Execute()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	err := rootCmd.ExecuteContext(ctx)
 	if err != nil {
 		os.Exit(1)
 	}
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
-	// uncomment to use viper
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.errhance.yaml)")
-
-	rootCmd.Flags().BoolP("overwrite", "o", false, "returns enhanced: err and fmt.Errorf")
+	rootCmd.Flags().BoolP("overwrite", "o", false, "also prefix supported fmt.Errorf calls, preserving their format and arguments")
 	rootCmd.Flags().BoolP("generated", "g", false, "enhances returns in generated code")
 	rootCmd.Flags().BoolP("vendor", "v", false, "enhances returns in vendor directory")
 	rootCmd.Flags().StringSlice("filepaths", []string{}, "enhances specific filepaths")
-}
-
-func initConfig() {
-	if cfgFile != "" {
-		// use config file from the flag
-		viper.SetConfigFile(cfgFile)
-	} else {
-		// find home directory
-		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
-		// search config in home directory with name ".errhance" (without extension)
-		viper.AddConfigPath(home)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName(".errhance")
-	}
-	viper.AutomaticEnv() // read in environment variables that match
-	// if a config file is found, read it in
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
-	}
 }

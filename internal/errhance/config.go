@@ -19,6 +19,8 @@ func NewDirectoryConfig(fwCfg fastwalk.Config, opts ...DirectoryOpt) DirectoryCo
 type SourceConfig struct {
 	overwrite bool
 	generated bool
+	// Keys are contractFunctionKey or contractLiteralKey; values explain skips.
+	blockedFunctions map[string]string
 }
 
 type SourceOpt func(*SourceConfig)

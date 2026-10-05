@@ -2,695 +2,83 @@ package errhance
 
 import (
 	"errors"
-	"fmt"
+	"strings"
 	"testing"
 )
 
-func main(replacement string) string {
-	return fmt.Sprintf(`package main
-func main() {
-	%s
-}`, replacement)
-}
+const validSource = `package p
+import "errors"
+func source() error { return errors.New("failure") }
+func f() error { problem := source(); if problem != nil { return problem }; return nil }
+`
 
 func TestSource(t *testing.T) {
-	type args struct {
-		src    string
-		config SourceConfig
+	report, err := Source(NewSourceConfig(), validSource)
+	if err != nil {
+		t.Fatal(err)
 	}
-	tests := []struct {
-		name    string
-		args    args
-		after   string
-		wantErr bool
-	}{
-		{
-			name: "3 return values with err enhancement",
-			args: args{
-				src: main(`
-				val, lav, err := Foo()
-				if err != nil {
-					return val, lav, err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				val, lav, err := Foo()
-				if err != nil {
-					return val, lav, fmt.Errorf("Foo: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "2 return values with enhancement",
-			args: args{
-				src: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("Foo: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "enhancing method func and package func",
-			args: args{
-				src: `package main
-				import (
-					"fee/fi/fo/fum"
-				)
-				func main() {
-					var foo Foo
-					val, err := foo.Foo()
-					if err != nil {
-						return val, err
-					}
-					v, err = fum.Foo()
-					if err != nil {
-						return val, err
-					}
-				}`,
-				config: NewSourceConfig(),
-			},
-			after: `package main
-				import (
-					"fee/fi/fo/fum"
-				)
-				func main() {
-					var foo Foo
-					val, err := foo.Foo()
-					if err != nil {
-						return val, fmt.Errorf("foo.Foo: %w", err)
-					}
-					v, err = fum.Foo()
-					if err != nil {
-						return val, fmt.Errorf("fum.Foo: %w", err)
-					}
-				}`,
-			wantErr: false,
-		},
+	if report.TotalErrorsEnhanced != 1 || !strings.Contains(report.After, `Errorf("source: %w", problem)`) || !strings.Contains(report.After, `"fmt"`) {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	again, err := Source(NewSourceConfig(), report.After)
+	if !errors.Is(err, ErrNoChanges) || again.After != report.After {
+		t.Fatalf("not idempotent: %+v, %v", again, err)
+	}
+}
 
-		{
-			name: "method enhanced",
-			args: args{
-				src: main(`
-				var foo Foo
-				val, err := foo.Foo()
-				if err != nil {
-					return val, err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				var foo Foo
-				val, err := foo.Foo()
-				if err != nil {
-					return val, fmt.Errorf("foo.Foo: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "returned error is not named err (would be a bug in original src)",
-			args: args{
-				src: main(`
-				val := foo.Foo()
-				if err != nil {
-					return err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				val := foo.Foo()
-				if err != nil {
-					return err
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "calling func returns 2 values, parent func returns 1 value",
-			args: args{
-				src: main(`
-				val, err := Foo()
-				if err != nil {
-					return err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				val, err := Foo()
-				if err != nil {
-					return fmt.Errorf("Foo: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "with comments",
-			args: args{
-				src: main(`
-				val, err := Foo() // nice...
-				// is this nil?
-				if err != nil {
-					// return that thang
-					return err // return it here
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				val, err := Foo() // nice...
-				// is this nil?
-				if err != nil {
-					// return that thang
-					return fmt.Errorf("Foo: %w", err) // return it here
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "multiple enhancements in a single file",
-			args: args{
-				src: main(`
-				err := foo.Foo()
-				if err != nil {
-					return err
-				}
-				err = bar()
-				if err != nil {
-					return err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				err := foo.Foo()
-				if err != nil {
-					return fmt.Errorf("foo.Foo: %w", err)
-				}
-				err = bar()
-				if err != nil {
-					return fmt.Errorf("bar: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "fmt.Errorf with ident format str, supplement directives, wrap errors",
-			args: args{
-				src: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf(someErrStr, err, url, secondErr, ErrSentinel)
-				}`),
-				config: NewSourceConfig(WithOverwrite(true)),
-			},
-			after: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("Foo: %w: %v: %w: %w", err, url, secondErr, ErrSentinel)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "calling func returns 1 value, parent func returns 1 value",
-			args: args{
-				src: main(`
-				err := bar()
-				if err != nil {
-					return err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				err := bar()
-				if err != nil {
-					return fmt.Errorf("bar: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "nested func calls",
-			args: args{
-				src: main(`
-				err := bar(Foo())
-				if err != nil {
-					return err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				err := bar(Foo())
-				if err != nil {
-					return fmt.Errorf("bar: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "most variants in a single file",
-			args: args{
-				src: `package main
-		import (
-		  "foo"
-		  "fee/fi/fo"
-		  fid "fiddly"
-		)
-		func A() error {
-		  b := foo.Bar{}
-		  err := b.Baz()
-		  if err != nil {
-		    return err
-		  }
-		  err = fo.Fum()
-		  if err != nil {
-		    return err
-		  }
-		  err = meep()
-		  if err != nil {
-		    return err
-		  }
-		  err = fid.Widdly().Weddly().Woddly()
-		  if err != nil {
-		    return err
-		  }
-		  err = a().b().c().d()
-		  if err != nil {
-		    return err
-		  }
-		}`,
-				config: NewSourceConfig(),
-			},
-			after: `package main
-		import (
-		  "foo"
-		  "fee/fi/fo"
-		  fid "fiddly"
-		)
-		func A() error {
-		  b := foo.Bar{}
-		  err := b.Baz()
-		  if err != nil {
-		    return fmt.Errorf("b.Baz: %w", err)
-		  }
-		  err = fo.Fum()
-		  if err != nil {
-		    return fmt.Errorf("fo.Fum: %w", err)
-		  }
-		  err = meep()
-		  if err != nil {
-		    return fmt.Errorf("meep: %w", err)
-		  }
-		  err = fid.Widdly().Weddly().Woddly()
-		  if err != nil {
-		    return fmt.Errorf("fid.Widdly.Weddly.Woddly: %w", err)
-		  }
-		  err = a().b().c().d()
-		  if err != nil {
-		    return fmt.Errorf("a.b.c.d: %w", err)
-		  }
-		}`,
-			wantErr: false,
-		},
-		{
-			name: "contains omit comment",
-			args: args{
-				src: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, err //noeh
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, err //noeh
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "no --overwrite flag provided with pre-existing fmt.Errorf",
-			args: args{
-				src: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("failed to run Foo: %w", err)
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("failed to run Foo: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "overwrite previous fmt.Errorf",
-			args: args{
-				src: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("failed to run Foo: %w", err)
-				}`),
-				config: NewSourceConfig(WithOverwrite(true)),
-			},
-			after: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("Foo: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "ignore generated code",
-			args: args{
-				src: `
-			// Code generated by sqlc. DO NOT EDIT.
-			// versions:
-			//   sqlc v1.27.0
-			package main
-			func main() {
-				val, err := Foo()
-				if err != nil {
-					return val, err
-				}
-			}`,
-				config: NewSourceConfig(),
-			},
-			after: `
-			// Code generated by sqlc. DO NOT EDIT.
-			// versions:
-			//   sqlc v1.27.0
-			package main
-			func main() {
-				val, err := Foo()
-				if err != nil {
-					return val, err
-				}
-			}`,
-			wantErr: false,
-		},
-		{
-			name: "errhance generated code",
-			args: args{
-				src: main(`
-				// Code generated by sqlc. DO NOT EDIT.
-				// versions:
-				//   sqlc v1.27.0
-				val, err := Foo()
-				if err != nil {
-					return val, err
-				}`),
-				config: NewSourceConfig(WithGenerated(true)),
-			},
-			after: main(`
-				// Code generated by sqlc. DO NOT EDIT.
-				// versions:
-				//   sqlc v1.27.0
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("Foo: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "chained with nested func calls",
-			args: args{
-				src: main(`
-				val, err := Foo().Bar(Baz()).Flop()
-				if err != nil {
-					return val, err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				val, err := Foo().Bar(Baz()).Flop()
-				if err != nil {
-					return val, fmt.Errorf("Foo.Bar.Flop: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "default, no change to fmt.Errorf with multiple idents",
-			args: args{
-				src: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("failed: %s: %w", val, err)
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("failed: %s: %w", val, err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "with --overwrite, errhance fmt.Errorf with multiple idents",
-			args: args{
-				src: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, 0, 0, fmt.Errorf("failed: %s: %w", val, err)
-				}`),
-				config: NewSourceConfig(WithOverwrite(true)),
-			},
-			after: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, 0, 0, fmt.Errorf("Foo: %s: %w", val, err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "with --overwrite, fmt.Errorf with sentinel err",
-			args: args{
-				src: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, 0, fmt.Errorf("failed: %w", ErrNotFound)
-				}`),
-				config: NewSourceConfig(WithOverwrite(true)),
-			},
-			after: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, 0, fmt.Errorf("Foo: %w", ErrNotFound)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "with --overwrite, change to fmt.Errorf and keep sentinel err",
-			args: args{
-				src: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("failed: %w", ErrNotFound)
-				}`),
-				config: NewSourceConfig(WithOverwrite(true)),
-			},
-			after: main(`
-				val, err := Foo()
-				if err != nil {
-					return val, fmt.Errorf("Foo: %w", ErrNotFound)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "with --overwrite, no change and formatting args are not just a simple identifier expression",
-			args: args{
-				src: main(`
-				val, err := strconv.Atoi(str[0])
-				if err != nil {
-					return 0, 0, 0, fmt.Errorf("%s: %w", str[0], err)
-				}`),
-				config: NewSourceConfig(WithOverwrite(true)),
-			},
-			after: main(`
-				val, err := strconv.Atoi(str[0])
-				if err != nil {
-					return 0, 0, 0, fmt.Errorf("strconv.Atoi: %s: %w", str[0], err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "error channel syntax unsupported (for now)",
-			args: args{
-				src: main(`
-				if err = <-errCh; err != nil {
-					return nil, err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				if err = <-errCh; err != nil {
-					return nil, err
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "weird",
-			args: args{
-				src: main(`
-				err = a().b().c().d()
-				if err != nil {
-					return nil, err
-				}
-				if foo := uint32(bar - baz); foo> 0 {
-					if err := f.aoeu.snth.Read(1, foo); err != nil {
-						err = something(true, err, "bleep", err)
-						return nil, err
-					}
-				}
-				val, lav, err := Foo()
-				if err != nil {
-					return nil, err
-				}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-				err = a().b().c().d()
-				if err != nil {
-					return nil, fmt.Errorf("a.b.c.d: %w", err)
-				}
-				if foo := uint32(bar - baz); foo> 0 {
-					if err := f.aoeu.snth.Read(1, foo); err != nil {
-						err = something(true, err, "bleep", err)
-						return nil, err
-					}
-				}
-				val, lav, err := Foo()
-				if err != nil {
-					return nil, fmt.Errorf("Foo: %w", err)
-				}`),
-			wantErr: false,
-		},
-		{
-			name: "one method shorthand followed by error channel shorthand",
-			args: args{
-				src: main(`
-					if err := r.Flush(); err != nil {
-						return nil, err
-					}
-					if err = <-errCh; err != nil {
-						return nil, err
-					}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-					if err := r.Flush(); err != nil {
-						return nil, fmt.Errorf("r.Flush: %w", err)
-					}
-					if err = <-errCh; err != nil {
-						return nil, err
-					}`),
-			wantErr: false,
-		},
-		{
-			name: "one shorthand syntax statement #1",
-			args: args{
-				src: main(`
-		if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-			return nil, err
-		}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-		if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-			return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
-		}`),
-			wantErr: false,
-		},
-		{
-			name: "one shorthand syntax statement #2",
-			args: args{
-				src: main(`
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("rows.Err: %w", err)
-		}`),
-			wantErr: false,
-		},
-		{
-			name: "double shorthand syntax",
-			args: args{
-				src: main(`
-		if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-			return nil, err
+func TestSourceRequiresStandaloneTypes(t *testing.T) {
+	for _, src := range []string{
+		`package p; func f() error { e := missing(); if e != nil { return e }; return nil }`,
+		`package p; func f() { return 1 }`,
+		`package p; import "missing.example/pkg"; var _ = pkg.F`,
+		`// Code generated by test. DO NOT EDIT.
+package p; var _ = missing`,
+	} {
+		report, err := Source(NewSourceConfig(), src)
+		if err == nil || errors.Is(err, ErrNoChanges) || report.After != src {
+			t.Fatalf("invalid input accepted: %+v, %v", report, err)
 		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-		if err := c.Request().ParseMultipartForm(10 << 20); err != nil {
-			return nil, fmt.Errorf("c.Request.ParseMultipartForm: %w", err)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("rows.Err: %w", err)
-		}`),
-			wantErr: false,
-		},
-		{
-			name: "nested shorthands",
-			args: args{
-				src: main(`
-		if d := uint32(aoeu - snth); d > 0 {
-			if err := a.abc.zxy.Write(0, d); err != nil {
-				return nil, err
-			}
-		}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-		if d := uint32(aoeu - snth); d > 0 {
-			if err := a.abc.zxy.Write(0, d); err != nil {
-				return nil, fmt.Errorf("a.abc.zxy.Write: %w", err)
-			}
-		}`),
-			wantErr: false,
-		},
-		{
-			name: "err is overwritten inside if, don't support",
-			args: args{
-				src: main(`
-		if foo := uint32(bar - baz); foo> 0 {
-			if err := f.aoeu.snth.Read(1, foo); err != nil {
-				err = something(true, err, "bleep", err)
-				return nil, err
-			}
-		}`),
-				config: NewSourceConfig(),
-			},
-			after: main(`
-		if foo := uint32(bar - baz); foo> 0 {
-			if err := f.aoeu.snth.Read(1, foo); err != nil {
-				err = something(true, err, "bleep", err)
-				return nil, err
-			}
-		}`),
-			wantErr: false,
-		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			report, err := Source(tt.args.config, tt.args.src)
-			if (err != nil) != tt.wantErr && !errors.Is(err, ErrNoChanges) {
-				t.Errorf("Source() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if report.After != tt.after {
-				t.Errorf("After: got = %v, want = %v", report.After, tt.after)
-			}
-		})
+}
+
+func TestSourceNoopAndDiagnostics(t *testing.T) {
+	for _, src := range []string{"package p\n", `package p; func f(e error) error { if e != nil { return e }; return nil }`} {
+		report, err := Source(NewSourceConfig(), src)
+		if !errors.Is(err, ErrNoChanges) || report.After != src || report.TotalErrorsEnhanced != 0 {
+			t.Fatalf("unexpected no-op: %+v, %v", report, err)
+		}
+		if strings.Contains(src, "func") && len(report.Diagnostics) == 0 {
+			t.Fatal("missing conservative-rewrite diagnostic")
+		}
+	}
+}
+
+func TestSourceGeneratedAndComments(t *testing.T) {
+	src := "// Code generated by test. DO NOT EDIT.\n" + validSource
+	report, err := Source(NewSourceConfig(), src)
+	if !errors.Is(err, ErrNoChanges) || !report.Skipped || report.After != src {
+		t.Fatalf("generated source not skipped: %+v, %v", report, err)
+	}
+	if report, err = Source(NewSourceConfig(WithGenerated(true)), src); err != nil || report.TotalErrorsEnhanced != 1 {
+		t.Fatalf("generated opt-in failed: %+v, %v", report, err)
+	}
+	src = strings.Replace(validSource, "return problem", "// noeh\nreturn problem", 1)
+	if report, err = Source(NewSourceConfig(), src); !errors.Is(err, ErrNoChanges) || report.After != src {
+		t.Fatalf("omit comment lost: %+v, %v", report, err)
+	}
+}
+
+func TestSourcePreservesIdentityConsumers(t *testing.T) {
+	src := `package p
+import "errors"
+var sentinel = errors.New("stop")
+func source() error { return sentinel }
+func producer() error { err := source(); if err != nil { return err }; return nil }
+func forward() error { return producer() }
+func check() bool { e := forward(); copy := e; return copy == sentinel }
+`
+	report, err := Source(NewSourceConfig(), src)
+	if !errors.Is(err, ErrNoChanges) || report.After != src || len(report.Diagnostics) == 0 {
+		t.Fatalf("identity contract changed: %+v, %v", report, err)
 	}
 }

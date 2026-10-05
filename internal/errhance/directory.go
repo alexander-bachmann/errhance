@@ -2,9 +2,10 @@ package errhance
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sync/atomic"
+	"go/token"
+	"path/filepath"
+	"sync"
 
 	"github.com/alexander-bachmann/errhance/internal/fastwalk"
 )
@@ -12,56 +13,56 @@ import (
 type DirectoryReport struct {
 	TotalFilesModified  int
 	TotalErrorsEnhanced int
+	Diagnostics         []Diagnostic
 }
 
 func LocalDirectory(dirCfg DirectoryConfig, srcCfg SourceConfig) (DirectoryReport, error) {
-	// downloadGoImportsIfMissing should be in LocalFile
-	// because that is the function with a dependency on
-	// goimports but it does not make sense to check for
-	// goimports more than once
-	err := downloadGoimportsIfMissing()
-	if err != nil {
-		return DirectoryReport{}, fmt.Errorf("downloadGoimportsIfMissing: %w", err)
+	return LocalDirectoryContext(context.Background(), dirCfg, srcCfg)
+}
+
+// LocalDirectoryContext honors walker selection, then validates all loaded
+// packages before writing. Counts describe committed files, including on error.
+// Validation covers only the active build configuration, not all GOOS/tag sets.
+func LocalDirectoryContext(ctx context.Context, dirCfg DirectoryConfig, srcCfg SourceConfig) (DirectoryReport, error) {
+	if err := ctx.Err(); err != nil {
+		return DirectoryReport{}, err
 	}
-	var totalFilesModified atomic.Int64
-	var totalErrorsEnhanced atomic.Int64
-	// closure for counting and satisfying fastwalk.Config's WorkFunc
-	dirCfg.fwCfg.WorkFunc = func(_ context.Context, path string) error {
-		srcReport, err := LocalFile(srcCfg, path)
-		if err != nil {
-			if errors.Is(err, ErrNoChanges) {
-				return nil
-			} else {
-				return fmt.Errorf("LocalFile: %s: %w", path, err)
-			}
+	explicit := make(map[string]bool)
+	for path := range dirCfg.fwCfg.OnlyFilepaths() {
+		if filepath.Ext(path) != ".go" {
+			return DirectoryReport{}, fmt.Errorf("not a Go source file: %s", path)
 		}
-		if srcReport.TotalErrorsEnhanced > 0 {
-			totalFilesModified.Add(1)
+		if _, err := safeFile(path); err != nil {
+			return DirectoryReport{}, err
 		}
-		totalErrorsEnhanced.Add(int64(srcReport.TotalErrorsEnhanced))
+		explicit[path] = true
+	}
+	var paths []string
+	var mu sync.Mutex
+	dirCfg.fwCfg.WorkFunc = func(ctx context.Context, path string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if filepath.Ext(path) != ".go" {
+			return nil
+		}
+		if _, err := safeFile(path); err != nil {
+			return err
+		}
+		mu.Lock()
+		paths = append(paths, path)
+		mu.Unlock()
 		return nil
 	}
-	// if specific filepaths were explicitly requested,
-	// just work on those rather than walking entire project
-	filepaths := dirCfg.fwCfg.OnlyFilepaths()
-	if len(filepaths) != 0 {
-		for path := range filepaths {
-			err := dirCfg.fwCfg.WorkFunc(context.TODO(), path)
-			if err != nil {
-				return DirectoryReport{}, err // noeh
-			}
-		}
-		return DirectoryReport{
-			TotalFilesModified:  int(totalFilesModified.Load()),
-			TotalErrorsEnhanced: int(totalErrorsEnhanced.Load()),
-		}, nil
+	if err := fastwalk.WalkContext(ctx, dirCfg.fwCfg); err != nil {
+		return DirectoryReport{}, err
 	}
-	err = fastwalk.Walk(dirCfg.fwCfg)
-	if err != nil {
-		return DirectoryReport{}, fmt.Errorf("fastwalk.Walk: %w", err)
+	report, _, err := rewriteProject(ctx, srcCfg, paths, explicit)
+	for _, path := range paths {
+		delete(explicit, path)
 	}
-	return DirectoryReport{
-		TotalFilesModified:  int(totalFilesModified.Load()),
-		TotalErrorsEnhanced: int(totalErrorsEnhanced.Load()),
-	}, nil
+	for path := range explicit {
+		report.Diagnostics = append(report.Diagnostics, Diagnostic{Position: token.Position{Filename: path}, Message: "explicit file excluded by traversal root or filters"})
+	}
+	return report, err
 }

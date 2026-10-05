@@ -75,7 +75,7 @@ func WithOnlyFilepaths(paths []string) Option {
 			if !filepath.IsAbs(path) {
 				path = filepath.Join(wd, path)
 			}
-			cfg.onlyFilepaths[path] = struct{}{}
+			cfg.onlyFilepaths[filepath.Clean(path)] = struct{}{}
 		}
 	}
 }
